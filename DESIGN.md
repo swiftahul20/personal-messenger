@@ -8,7 +8,8 @@ Direction for the React client in `web/`. The brief below is the owner's. The pa
 - A user signs in, then chats like in a usual messenger app.
 - The user can choose a side-by-side mode: two chat windows next to each other. When the left user sends a message, it shows immediately in the right user's window.
 - Logo: plain text for now, no mark.
-- Typing indicator: not in this pass. It needs a server change first.
+- Typing indicator: show while the other person is typing.
+- Chat composer: include a compact picker for Unicode emoji mapped from classic Yahoo emoticon codes. Use the mappings in the owner's reference issue at `https://github.com/Crissov/unicode-proposals/issues/255`; send Unicode text, not GIF artwork or rich message content, so they work with the existing message storage.
 
 ## Design Read
 
@@ -65,4 +66,4 @@ Lines, not bubbles. Name in bold, time in muted text, message below. Consecutive
 
 ## Out of scope for now
 
-Typing indicator, emoticons, away messages, a logo, avatars, and any real authentication.
+Away messages, rich content, a logo, avatars, and any real authentication.

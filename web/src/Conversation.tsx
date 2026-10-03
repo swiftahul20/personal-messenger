@@ -10,6 +10,16 @@ import type { Session } from "./useSession";
 import { primaryButton, secondaryButton } from "./Window";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
+const EMOTICONS = [
+  { emoji: "🙂", code: ":)", label: "Smile" },
+  { emoji: "😀", code: ":D", label: "Big grin" },
+  { emoji: "😉", code: ";)", label: "Wink" },
+  { emoji: "🙁", code: ":(", label: "Sad" },
+  { emoji: "😢", code: ":((", label: "Crying" },
+  { emoji: "😛", code: ":P", label: "Tongue out" },
+  { emoji: "😮", code: ":-O", label: "Surprised" },
+  { emoji: "😎", code: "B-)", label: "Cool" },
+];
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], {
@@ -58,7 +68,9 @@ function Transcript({
                 </time>
               </p>
             )}
-            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+            <p className="whitespace-pre-wrap wrap-break-word">
+              {message.content}
+            </p>
           </div>
         );
       })}
@@ -80,7 +92,9 @@ export function Conversation({
   const { activeKey, buddies, rooms, messages, history, connection, notice } =
     session;
   const [draft, setDraft] = useState("");
+  const [emoticonsOpen, setEmoticonsOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const list = activeKey ? (messages[activeKey] ?? []) : [];
   useEffect(() => {
@@ -115,6 +129,7 @@ export function Conversation({
   const state = history[activeKey] ?? "loading";
   const connected = connection === "open";
   const composerId = `message-${slot}`;
+  const emoticonListId = `emoticons-${slot}`;
 
   const typingNames = (session.typing[activeKey] ?? []).map(
     (userId) =>
@@ -141,6 +156,22 @@ export function Conversation({
       event.preventDefault();
       submit();
     }
+  }
+
+  function insertEmoticon(text: string) {
+    const composer = composerRef.current;
+    const start = composer?.selectionStart ?? draft.length;
+    const end = composer?.selectionEnd ?? start;
+    const nextDraft = `${draft.slice(0, start)}${text}${draft.slice(end)}`;
+    if (nextDraft.length > 4000) return;
+
+    setDraft(nextDraft);
+    if (nextDraft.trim() && activeKey) session.sendTyping(activeKey);
+    setEmoticonsOpen(false);
+    requestAnimationFrame(() => {
+      composer?.focus();
+      composer?.setSelectionRange(start + text.length, start + text.length);
+    });
   }
 
   return (
@@ -222,6 +253,7 @@ export function Conversation({
         </label>
         <div className="flex items-end gap-2">
           <textarea
+            ref={composerRef}
             id={composerId}
             rows={2}
             maxLength={4000}
@@ -234,6 +266,42 @@ export function Conversation({
             disabled={!connected}
             className="min-h-11 min-w-0 flex-1 resize-none rounded-win border border-line bg-white p-2 text-ink disabled:bg-selected"
           />
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              className={secondaryButton}
+              aria-label="Choose an emoji"
+              aria-expanded={emoticonsOpen}
+              aria-controls={emoticonListId}
+              title="Choose a Unicode emoji"
+              disabled={!connected}
+              onClick={() => setEmoticonsOpen((open) => !open)}
+            >
+              🙂
+            </button>
+            {emoticonsOpen ? (
+              <div
+                id={emoticonListId}
+                role="group"
+                aria-label="Unicode emoji from classic Yahoo emoticons"
+                className="absolute right-0 bottom-full z-10 mb-1 grid w-52 grid-cols-4 gap-1 rounded-win border border-line bg-white p-1 shadow-window"
+              >
+                {EMOTICONS.map((emoticon) => (
+                  <button
+                    key={emoticon.code}
+                    type="button"
+                    className={`${secondaryButton} min-h-11! min-w-11! px-2 font-bold`}
+                    aria-label={`${emoticon.label}, ${emoticon.code}`}
+                    title={`${emoticon.label} (${emoticon.code})`}
+                    disabled={draft.length + emoticon.emoji.length > 4000}
+                    onClick={() => insertEmoticon(emoticon.emoji)}
+                  >
+                    {emoticon.emoji}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <button
             type="submit"
             className={primaryButton}

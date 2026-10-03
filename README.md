@@ -9,6 +9,7 @@ This is a learning project. Usernames are not passwords: anyone can connect as a
 - Create or retrieve a username-only user
 - Add buddies and see their current online status
 - Send real-time 1:1 direct messages to buddies
+- Insert Unicode emoji mapped from classic Yahoo emoticon codes
 - Create rooms, join rooms, and exchange messages with room members
 - Retrieve persisted direct-message and room history
 - One Hub goroutine owns online client state; each WebSocket client has separate read and write loops
@@ -154,7 +155,7 @@ npm run dev
 
 Open `http://localhost:5173`. The dev server proxies `/api` and `/ws` to the Go server on port 8080, so start the server first.
 
-Sign in with a username in each window. Choose **Side by side** to run two signed-in users next to each other: a message sent in one window appears in the other as soon as the server delivers it, and the other window shows "is typing..." while the sender types. Both users need to be buddies, so add one from the other's window.
+Sign in with a username in each window. Choose **Side by side** to run two signed-in users next to each other: a message sent in one window appears in the other as soon as the server delivers it, and the other window shows "is typing..." while the sender types. Use the emoji button to insert a Unicode equivalent of a classic Yahoo emoticon at the cursor. Both users need to be buddies, so add one from the other's window.
 
 ## Run checks
 
