@@ -9,6 +9,11 @@
 *.out
 /bin/
 
+# Frontend dependencies and build output
+node_modules/
+dist/
+web/.vite/
+
 # IDE and operating-system files
 .vscode/
 .idea/

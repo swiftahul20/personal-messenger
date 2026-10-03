@@ -20,6 +20,27 @@ Typing indicators, away messages, rich content, and real authentication are not 
 - Go 1.23 or newer
 - Docker Desktop with Docker Compose
 - Docker Hub access the first time images are pulled
+- Node.js 22.12 or newer and npm (for the React frontend)
+
+## Frontend Setup
+
+The React + TypeScript app is in `web/`. Tailwind CSS is installed, but no chat UI has been designed or implemented yet. Start the Go server first, then in another PowerShell terminal run:
+
+```powershell
+Set-Location web
+npm ci
+npm run dev
+```
+
+Open the Vite URL printed in the terminal, usually `http://localhost:5173`. The development server proxies `/api` and `/ws` to the Go server on port `8080`.
+
+To verify or lint the frontend:
+
+```powershell
+Set-Location web
+npm run build
+npm run lint
+```
 
 ## Run with Docker Compose
 
@@ -111,6 +132,20 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/messages/dm?user_id=$($alice.i
 Invoke-RestMethod -Uri "http://localhost:8080/api/messages/room?user_id=$($alice.id)&room_id=$($room.id)"
 ```
 
+## Web client
+
+A React, TypeScript, and Tailwind client lives in `web/`. Design direction is in `DESIGN.md`. It needs Node 20.19 or newer (22.13 or newer is recommended).
+
+```powershell
+cd web
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The dev server proxies `/api` and `/ws` to the Go server on port 8080, so start the server first.
+
+Sign in with a username in each window. Choose **Side by side** to run two signed-in users next to each other: a message sent in one window appears in the other as soon as the server delivers it. Both users need to be buddies, so add one from the other's window. Typing indicators are not built yet.
+
 ## Run checks
 
 ```powershell
@@ -123,6 +158,9 @@ go build ./cmd/chat-server
 
 ```text
 cmd/chat-server/       Server entry point
+web/                   React client
+DESIGN.md              Design direction for the client
+web/                   React + TypeScript frontend scaffold (no UI yet)
 internal/api/          HTTP and WebSocket endpoints
 internal/chat/         Hub, clients, and chat message contracts
 internal/data/         PostgreSQL store and embedded schema
