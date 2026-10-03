@@ -177,8 +177,11 @@ func (h *Handler) dmHistory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "users are not buddies")
 		return
 	}
-	limit := queryLimit(r)
-	messages, err := h.chat.DMHistory(r.Context(), userID, buddyID, limit)
+	beforeID, ok := queryBeforeID(w, r)
+	if !ok {
+		return
+	}
+	messages, err := h.chat.DMHistory(r.Context(), userID, buddyID, beforeID, queryLimit(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not load message history")
 		return
@@ -200,7 +203,11 @@ func (h *Handler) roomHistory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "user is not a member of this room")
 		return
 	}
-	messages, err := h.chat.RoomHistory(r.Context(), roomID, queryLimit(r))
+	beforeID, ok := queryBeforeID(w, r)
+	if !ok {
+		return
+	}
+	messages, err := h.chat.RoomHistory(r.Context(), roomID, beforeID, queryLimit(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not load message history")
 		return
@@ -254,6 +261,19 @@ func queryLimit(r *http.Request) int {
 		return 200
 	}
 	return limit
+}
+
+func queryBeforeID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	value := r.URL.Query().Get("before_id")
+	if value == "" {
+		return 0, true
+	}
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "before_id must be a positive message ID")
+		return 0, false
+	}
+	return id, true
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {

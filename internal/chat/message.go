@@ -23,12 +23,14 @@ type IncomingMessage struct {
 }
 
 type Event struct {
-	Type    string   `json:"type"`
-	Message *Message `json:"message,omitempty"`
-	UserID  int      `json:"user_id,omitempty"`
-	RoomID  int      `json:"room_id,omitempty"`
-	Online  *bool    `json:"online,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	Type      string   `json:"type"`
+	Message   *Message `json:"message,omitempty"`
+	MessageID int64    `json:"message_id,omitempty"`
+	Status    string   `json:"status,omitempty"`
+	UserID    int      `json:"user_id,omitempty"`
+	RoomID    int      `json:"room_id,omitempty"`
+	Online    *bool    `json:"online,omitempty"`
+	Error     string   `json:"error,omitempty"`
 }
 
 type Store interface {
@@ -37,6 +39,6 @@ type Store interface {
 	IsRoomMember(context.Context, int, int) (bool, error)
 	RoomMemberIDs(context.Context, int) ([]int, error)
 	BuddyIDs(context.Context, int) ([]int, error)
-	DMHistory(context.Context, int, int, int) ([]Message, error)
-	RoomHistory(context.Context, int, int) ([]Message, error)
+	DMHistory(context.Context, int, int, int64, int) ([]Message, error)
+	RoomHistory(context.Context, int, int64, int) ([]Message, error)
 }

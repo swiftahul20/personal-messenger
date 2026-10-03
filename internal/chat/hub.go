@@ -152,8 +152,9 @@ func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedM
 			return
 		}
 		event := Event{Type: "message", Message: &messageRecord}
+		delivered := h.deliverTo(ctx, clients, *messageRecord.RecipientID, event)
 		h.deliverTo(ctx, clients, queued.senderID, event)
-		h.deliverTo(ctx, clients, *messageRecord.RecipientID, event)
+		h.sendAck(ctx, clients, queued.senderID, messageRecord.ID, delivered)
 	case "room":
 		if message.RoomID <= 0 || message.RecipientID != 0 {
 			h.sendError(clients[queued.senderID], "a room message requires a room_id")
@@ -175,9 +176,14 @@ func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedM
 			return
 		}
 		event := Event{Type: "message", Message: &messageRecord}
+		delivered := false
 		for _, recipientID := range recipients {
-			h.deliverTo(ctx, clients, recipientID, event)
+			enqueued := h.deliverTo(ctx, clients, recipientID, event)
+			if recipientID != queued.senderID && enqueued {
+				delivered = true
+			}
 		}
+		h.sendAck(ctx, clients, queued.senderID, messageRecord.ID, delivered)
 	default:
 		h.sendError(clients[queued.senderID], "type must be dm or room")
 	}
@@ -220,13 +226,26 @@ func (h *Hub) deliverTyping(clients map[int]*Client, userID int, event Event) {
 	}
 }
 
-func (h *Hub) deliverTo(ctx context.Context, clients map[int]*Client, userID int, event Event) {
+func (h *Hub) deliverTo(ctx context.Context, clients map[int]*Client, userID int, event Event) bool {
 	client := clients[userID]
-	if client != nil && !client.deliver(event) {
+	if client == nil {
+		return false
+	}
+	if !client.deliver(event) {
 		delete(clients, userID)
 		close(client.send)
 		h.notifyPresence(ctx, clients, userID, false)
+		return false
 	}
+	return true
+}
+
+func (h *Hub) sendAck(ctx context.Context, clients map[int]*Client, userID int, messageID int64, delivered bool) {
+	status := "sent"
+	if delivered {
+		status = "delivered"
+	}
+	h.deliverTo(ctx, clients, userID, Event{Type: "ack", MessageID: messageID, Status: status})
 }
 
 func (h *Hub) sendError(client *Client, message string) {

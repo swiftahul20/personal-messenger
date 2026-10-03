@@ -1,5 +1,8 @@
 import type { Buddy, ChatMessage, Room, User } from "./types";
 
+export const HISTORY_PAGE_SIZE = 100;
+const HISTORY_FETCH_SIZE = HISTORY_PAGE_SIZE + 1;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -42,13 +45,13 @@ export const api = {
     post<Room>("/api/rooms", { user_id: userId, name }),
   joinRoom: (userId: number, roomId: number) =>
     post<{ status: string }>(`/api/rooms/${roomId}/join`, { user_id: userId }),
-  dmHistory: (userId: number, withId: number) =>
+  dmHistory: (userId: number, withId: number, beforeId?: number) =>
     request<ChatMessage[]>(
-      `/api/messages/dm?user_id=${userId}&with=${withId}&limit=100`,
+      `/api/messages/dm?user_id=${userId}&with=${withId}&limit=${HISTORY_FETCH_SIZE}${beforeId ? `&before_id=${beforeId}` : ""}`,
     ),
-  roomHistory: (userId: number, roomId: number) =>
+  roomHistory: (userId: number, roomId: number, beforeId?: number) =>
     request<ChatMessage[]>(
-      `/api/messages/room?user_id=${userId}&room_id=${roomId}&limit=100`,
+      `/api/messages/room?user_id=${userId}&room_id=${roomId}&limit=${HISTORY_FETCH_SIZE}${beforeId ? `&before_id=${beforeId}` : ""}`,
     ),
 };
 

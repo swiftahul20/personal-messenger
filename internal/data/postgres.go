@@ -197,33 +197,35 @@ func (p *Postgres) BuddyIDs(ctx context.Context, userID int) ([]int, error) {
 	return ids, rows.Err()
 }
 
-func (p *Postgres) DMHistory(ctx context.Context, userID, buddyID, limit int) ([]chat.Message, error) {
+func (p *Postgres) DMHistory(ctx context.Context, userID, buddyID int, beforeID int64, limit int) ([]chat.Message, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT history.id, history.sender_id, history.recipient_id, history.room_id,
 			history.content, history.sent_at, sender.username
 		FROM (
 			SELECT id, sender_id, recipient_id, room_id, content, sent_at FROM messages
 			WHERE room_id IS NULL AND ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
-			ORDER BY sent_at DESC LIMIT $3
+				AND ($3 = 0 OR id < $3)
+			ORDER BY id DESC LIMIT $4
 		) history
 		JOIN users sender ON sender.id = history.sender_id
-		ORDER BY history.sent_at ASC`, userID, buddyID, limit)
+		ORDER BY history.id ASC`, userID, buddyID, beforeID, limit)
 	if err != nil {
 		return nil, err
 	}
 	return scanMessages(rows)
 }
 
-func (p *Postgres) RoomHistory(ctx context.Context, roomID, limit int) ([]chat.Message, error) {
+func (p *Postgres) RoomHistory(ctx context.Context, roomID int, beforeID int64, limit int) ([]chat.Message, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT history.id, history.sender_id, history.recipient_id, history.room_id,
 			history.content, history.sent_at, sender.username
 		FROM (
 			SELECT id, sender_id, recipient_id, room_id, content, sent_at FROM messages
-			WHERE room_id = $1 ORDER BY sent_at DESC LIMIT $2
+			WHERE room_id = $1 AND ($2 = 0 OR id < $2)
+			ORDER BY id DESC LIMIT $3
 		) history
 		JOIN users sender ON sender.id = history.sender_id
-		ORDER BY history.sent_at ASC`, roomID, limit)
+		ORDER BY history.id ASC`, roomID, beforeID, limit)
 	if err != nil {
 		return nil, err
 	}

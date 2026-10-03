@@ -13,6 +13,8 @@ type fakeStore struct {
 }
 
 func (f fakeStore) SaveMessage(_ context.Context, message *Message) error {
+	message.ID = 42
+	message.SentAt = time.Now()
 	message.SenderName = f.users[message.SenderID]
 	return nil
 }
@@ -36,9 +38,13 @@ func (f fakeStore) RoomMemberIDs(_ context.Context, roomID int) ([]int, error) {
 
 func (f fakeStore) BuddyIDs(context.Context, int) ([]int, error) { return nil, nil }
 
-func (f fakeStore) DMHistory(context.Context, int, int, int) ([]Message, error) { return nil, nil }
+func (f fakeStore) DMHistory(context.Context, int, int, int64, int) ([]Message, error) {
+	return nil, nil
+}
 
-func (f fakeStore) RoomHistory(context.Context, int, int) ([]Message, error) { return nil, nil }
+func (f fakeStore) RoomHistory(context.Context, int, int64, int) ([]Message, error) {
+	return nil, nil
+}
 
 func startHub(t *testing.T, store Store, userIDs ...int) (*Hub, map[int]*Client) {
 	t.Helper()
@@ -129,5 +135,44 @@ func TestRoomMessageIncludesRealSenderName(t *testing.T) {
 	event, ok := receive(clients[2])
 	if !ok || event.Type != "message" || event.Message == nil || event.Message.SenderName != "alice" {
 		t.Fatalf("room member got %+v, delivered=%v", event, ok)
+	}
+}
+
+func TestDirectMessageAcknowledgesOnlineDelivery(t *testing.T) {
+	store := fakeStore{
+		buddies: map[[2]int]bool{{1, 2}: true},
+		users:   map[int]string{1: "alice"},
+	}
+	hub, clients := startHub(t, store, 1, 2)
+
+	if err := hub.Publish(IncomingMessage{Type: "dm", RecipientID: 2, Content: "hello"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if event, ok := receive(clients[2]); !ok || event.Type != "message" {
+		t.Fatalf("recipient got %+v, delivered=%v", event, ok)
+	}
+	if event, ok := receive(clients[1]); !ok || event.Type != "message" {
+		t.Fatalf("sender echo got %+v, delivered=%v", event, ok)
+	}
+	if event, ok := receive(clients[1]); !ok || event.Type != "ack" || event.MessageID != 42 || event.Status != "delivered" {
+		t.Fatalf("sender acknowledgement got %+v, delivered=%v", event, ok)
+	}
+}
+
+func TestDirectMessageAcknowledgesSaveWhenBuddyIsOffline(t *testing.T) {
+	store := fakeStore{
+		buddies: map[[2]int]bool{{1, 2}: true},
+		users:   map[int]string{1: "alice"},
+	}
+	hub, clients := startHub(t, store, 1)
+
+	if err := hub.Publish(IncomingMessage{Type: "dm", RecipientID: 2, Content: "hello"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if event, ok := receive(clients[1]); !ok || event.Type != "message" {
+		t.Fatalf("sender echo got %+v, delivered=%v", event, ok)
+	}
+	if event, ok := receive(clients[1]); !ok || event.Type != "ack" || event.Status != "sent" {
+		t.Fatalf("sender acknowledgement got %+v, delivered=%v", event, ok)
 	}
 }

@@ -54,6 +54,7 @@ function Transcript({
             new Date(previous.sent_at).getTime() <
             GROUP_WINDOW_MS;
         const mine = message.sender_id === user.id;
+        const delivery = session.delivery[message.id];
         return (
           <div
             key={message.id}
@@ -73,6 +74,12 @@ function Transcript({
             )}
             <p className="whitespace-pre-wrap wrap-break-word">
               {message.content}
+              {mine && delivery ? (
+                <span role="status" className="ml-2 text-xs text-muted">
+                  {" "}
+                  {delivery === "delivered" ? "Delivered" : "Sent"}
+                </span>
+              ) : null}
             </p>
           </div>
         );
@@ -92,18 +99,47 @@ export function Conversation({
   className: string;
   onBack: () => void;
 }) {
-  const { activeKey, buddies, rooms, messages, history, connection, notice } =
-    session;
+  const {
+    activeKey,
+    buddies,
+    rooms,
+    messages,
+    history,
+    connection,
+    notice,
+    hasOlder,
+    olderLoading,
+  } = session;
   const [draft, setDraft] = useState("");
   const [emoticonsOpen, setEmoticonsOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const prependScrollRef = useRef<{
+    key: string;
+    oldestId: number;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
 
   const list = activeKey ? (messages[activeKey] ?? []) : [];
+  const oldestMessageId = list[0]?.id;
   useEffect(() => {
     const log = logRef.current;
-    if (log) log.scrollTop = log.scrollHeight;
-  }, [list.length, activeKey]);
+    if (!log) return;
+    const snapshot = prependScrollRef.current;
+    if (
+      snapshot?.key === activeKey &&
+      oldestMessageId !== undefined &&
+      oldestMessageId < snapshot.oldestId
+    ) {
+      log.scrollTop =
+        snapshot.scrollTop + log.scrollHeight - snapshot.scrollHeight;
+      prependScrollRef.current = null;
+      return;
+    }
+    if (snapshot && snapshot.key !== activeKey) prependScrollRef.current = null;
+    log.scrollTop = log.scrollHeight;
+  }, [list.length, activeKey, oldestMessageId]);
 
   if (!activeKey) {
     return (
@@ -161,6 +197,20 @@ export function Conversation({
     }
   }
 
+  async function loadOlderMessages() {
+    if (!activeKey) return;
+    const log = logRef.current;
+    const oldestId = list[0]?.id;
+    if (!log || oldestId === undefined) return;
+    prependScrollRef.current = {
+      key: activeKey,
+      oldestId,
+      scrollHeight: log.scrollHeight,
+      scrollTop: log.scrollTop,
+    };
+    if (!(await session.loadOlder(activeKey))) prependScrollRef.current = null;
+  }
+
   function insertEmoticon(text: string) {
     const composer = composerRef.current;
     const start = composer?.selectionStart ?? draft.length;
@@ -199,6 +249,20 @@ export function Conversation({
         aria-label={`Messages with ${title}`}
         className="min-h-0 flex-1 overflow-y-auto p-3"
       >
+        {state === "ready" && hasOlder[activeKey] ? (
+          <div className="mb-3 flex justify-center">
+            <button
+              type="button"
+              className={secondaryButton}
+              disabled={olderLoading[activeKey]}
+              onClick={() => void loadOlderMessages()}
+            >
+              {olderLoading[activeKey]
+                ? "Loading older messages..."
+                : "Load older messages"}
+            </button>
+          </div>
+        ) : null}
         {state === "loading" ? (
           <p className="text-muted">Loading messages...</p>
         ) : null}

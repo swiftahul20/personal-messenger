@@ -7,13 +7,13 @@ This is a learning project. Usernames are not passwords: anyone can connect as a
 ## Features
 
 - Create or retrieve a username-only user
-- Add buddies and see their current online status
+- Add buddies and see their current online status with a green online indicator
 - Send real-time 1:1 direct messages to buddies
 - Show actual sender usernames in room messages
 - Reconnect WebSocket sessions automatically after a disconnect
 - Insert Unicode emoji mapped from classic Yahoo emoticon codes
-- Show sender usernames in room messages
-- Reconnect WebSockets automatically after a dropped connection
+- See whether messages are saved or queued to a live recipient
+- Load older messages in pages while preserving scroll position
 - Create rooms, join rooms, and exchange messages with room members
 - Retrieve persisted direct-message and room history
 - One Hub goroutine owns online client state; each WebSocket client has separate read and write loops
@@ -89,7 +89,7 @@ All request and response bodies use JSON.
 | `GET`  | `/api/messages/room?user_id={id}&room_id={roomID}` | Fetch room history                         |
 | `GET`  | `/ws?user_id={id}`                                 | Open a WebSocket connection                |
 
-History endpoints accept an optional `limit` query parameter (default 50, maximum 200). Users must be buddies to exchange or fetch direct messages. Users must be room members to send or fetch room messages.
+History endpoints accept an optional `limit` query parameter (default 50, maximum 200) and `before_id` cursor for loading earlier pages. Pages are returned oldest-first. Users must be buddies to exchange or fetch direct messages. Users must be room members to send or fetch room messages.
 
 ### Create users and a buddy relationship
 
@@ -136,7 +136,7 @@ Send a room message (replace `1` with the room's actual ID):
 { "type": "room", "room_id": 1, "content": "Hello room" }
 ```
 
-Each connected recipient receives a JSON event with `"type":"message"`. Presence events have `"type":"presence"`; invalid messages and delivery failures return `"type":"error"`.
+Each connected recipient receives a JSON event with `"type":"message"`. The sender also receives an acknowledgement such as `{ "type": "ack", "message_id": 12, "status": "delivered" }`. `sent` means Postgres saved the message; `delivered` means the server queued it for at least one live recipient. It is not a read receipt. Presence events have `"type":"presence"`; invalid messages and delivery failures return `"type":"error"`.
 
 To show that you are typing, send `{ "type": "typing", "recipient_id": 2 }` or `{ "type": "typing", "room_id": 1 }`. The server does not store it and sends no reply. The buddy, or the other room members, receive `{ "type": "typing", "user_id": 1 }` (with `room_id` for rooms). Resend about every two seconds while typing. Receivers should treat a gap of four seconds as the user having stopped.
 
@@ -175,7 +175,6 @@ go build ./cmd/chat-server
 cmd/chat-server/       Server entry point
 web/                   React client
 DESIGN.md              Design direction for the client
-web/                   React + TypeScript frontend scaffold (no UI yet)
 internal/api/          HTTP and WebSocket endpoints
 internal/chat/         Hub, clients, and chat message contracts
 internal/data/         PostgreSQL store and embedded schema

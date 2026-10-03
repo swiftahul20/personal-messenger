@@ -160,9 +160,9 @@ export function BuddyList({
                     >
                       <span
                         aria-hidden="true"
-                        className={`size-2.5 shrink-0 rounded-full border border-brand ${
+                        className={`size-2.5 shrink-0 rounded-full border ${
                           buddy.online
-                            ? "bg-brand"
+                            ? "border-online bg-online"
                             : "border-line bg-transparent"
                         }`}
                       />

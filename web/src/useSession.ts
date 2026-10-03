@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, socketUrl } from "./api";
-import type { Buddy, ChatMessage, Room, ServerEvent, User } from "./types";
+import { api, HISTORY_PAGE_SIZE, socketUrl } from "./api";
+import type {
+  Buddy,
+  ChatMessage,
+  DeliveryStatus,
+  Room,
+  ServerEvent,
+  User,
+} from "./types";
 
 export type Connection = "connecting" | "open" | "closed";
 export type LoadState = "loading" | "ready" | "error";
@@ -38,6 +45,9 @@ export function useSession(
   const [reloadTick, setReloadTick] = useState(0);
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
   const [history, setHistory] = useState<Record<string, LoadState>>({});
+  const [hasOlder, setHasOlder] = useState<Record<string, boolean>>({});
+  const [olderLoading, setOlderLoading] = useState<Record<string, boolean>>({});
+  const [delivery, setDelivery] = useState<Record<number, DeliveryStatus>>({});
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -118,7 +128,9 @@ export function useSession(
     };
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data as string) as ServerEvent;
-      if (data.type === "presence") {
+      if (data.type === "ack") {
+        setDelivery((prev) => ({ ...prev, [data.message_id]: data.status }));
+      } else if (data.type === "presence") {
         setBuddies((prev) =>
           prev.map((buddy) =>
             buddy.id === data.user_id
@@ -199,9 +211,13 @@ export function useSession(
           kind === "dm"
             ? await api.dmHistory(user.id, id)
             : await api.roomHistory(user.id, id);
+        setHasOlder((prev) => ({
+          ...prev,
+          [key]: list.length > HISTORY_PAGE_SIZE,
+        }));
         setMessages((prev) => ({
           ...prev,
-          [key]: mergeMessages(list, prev[key] ?? []),
+          [key]: mergeMessages(list.slice(-HISTORY_PAGE_SIZE), prev[key] ?? []),
         }));
         setHistory((prev) => ({ ...prev, [key]: "ready" }));
       } catch {
@@ -210,6 +226,38 @@ export function useSession(
       }
     },
     [user.id],
+  );
+
+  const loadOlder = useCallback(
+    async (key: string): Promise<boolean> => {
+      const oldestId = messages[key]?.[0]?.id;
+      if (!oldestId || !hasOlder[key] || olderLoading[key]) return false;
+
+      const { kind, id } = parseKey(key);
+      setOlderLoading((prev) => ({ ...prev, [key]: true }));
+      try {
+        const older =
+          kind === "dm"
+            ? await api.dmHistory(user.id, id, oldestId)
+            : await api.roomHistory(user.id, id, oldestId);
+        const page = older.slice(-HISTORY_PAGE_SIZE);
+        setMessages((prev) => ({
+          ...prev,
+          [key]: mergeMessages(page, prev[key] ?? []),
+        }));
+        setHasOlder((prev) => ({
+          ...prev,
+          [key]: older.length > HISTORY_PAGE_SIZE,
+        }));
+        return page.length > 0;
+      } catch {
+        setNotice("Could not load older messages.");
+        return false;
+      } finally {
+        setOlderLoading((prev) => ({ ...prev, [key]: false }));
+      }
+    },
+    [hasOlder, messages, olderLoading, user.id],
   );
 
   const select = useCallback(
@@ -310,6 +358,9 @@ export function useSession(
     listState,
     messages,
     history,
+    hasOlder,
+    olderLoading,
+    delivery,
     unread,
     activeKey,
     notice,
@@ -323,5 +374,6 @@ export function useSession(
     reconnect,
     retryLists,
     retryHistory: loadHistory,
+    loadOlder,
   };
 }
