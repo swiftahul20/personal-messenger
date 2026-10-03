@@ -26,4 +26,5 @@ export interface ChatMessage {
 export type ServerEvent =
   | { type: "message"; message: ChatMessage }
   | { type: "presence"; user_id: number; online: boolean }
+  | { type: "typing"; user_id: number; room_id?: number }
   | { type: "error"; error: string };

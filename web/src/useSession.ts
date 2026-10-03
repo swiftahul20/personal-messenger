@@ -18,6 +18,10 @@ function parseKey(key: string): { kind: string; id: number } {
   return { kind, id: Number(rawId) };
 }
 
+// The sender repeats typing events while the draft changes, so a gap longer than this means they stopped.
+const TYPING_EXPIRES_MS = 4000;
+const TYPING_SEND_EVERY_MS = 2000;
+
 // syncVersion changes when either window adds a buddy or room, so both lists reload.
 export function useSession(
   user: User,
@@ -35,10 +39,48 @@ export function useSession(
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [typing, setTyping] = useState<Record<string, number[]>>({});
 
   const socketRef = useRef<WebSocket | null>(null);
   const activeRef = useRef<string | null>(null);
   const loadedRef = useRef(new Set<string>());
+  const typingTimers = useRef(new Map<string, number>());
+  const lastTypingSent = useRef(new Map<string, number>());
+
+  const clearTyping = useCallback((key: string, userId: number) => {
+    const timerKey = `${key}:${userId}`;
+    window.clearTimeout(typingTimers.current.get(timerKey));
+    typingTimers.current.delete(timerKey);
+    setTyping((prev) => {
+      if (!prev[key]?.includes(userId)) return prev;
+      return { ...prev, [key]: prev[key].filter((id) => id !== userId) };
+    });
+  }, []);
+
+  const markTyping = useCallback(
+    (key: string, userId: number) => {
+      const timerKey = `${key}:${userId}`;
+      window.clearTimeout(typingTimers.current.get(timerKey));
+      typingTimers.current.set(
+        timerKey,
+        window.setTimeout(() => clearTyping(key, userId), TYPING_EXPIRES_MS),
+      );
+      setTyping((prev) =>
+        prev[key]?.includes(userId)
+          ? prev
+          : { ...prev, [key]: [...(prev[key] ?? []), userId] },
+      );
+    },
+    [clearTyping],
+  );
+
+  useEffect(() => {
+    const timers = typingTimers.current;
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
+  }, [user.id, attempt]);
 
   useEffect(() => {
     const socket = new WebSocket(socketUrl(user.id));
@@ -56,6 +98,11 @@ export function useSession(
               : buddy,
           ),
         );
+      } else if (data.type === "typing") {
+        const key = data.room_id
+          ? `room:${data.room_id}`
+          : `dm:${data.user_id}`;
+        markTyping(key, data.user_id);
       } else if (data.type === "message") {
         const message = data.message;
         const otherId =
@@ -65,6 +112,7 @@ export function useSession(
         const key = message.room_id
           ? `room:${message.room_id}`
           : `dm:${otherId}`;
+        clearTyping(key, message.sender_id);
         setMessages((prev) => ({
           ...prev,
           [key]: mergeMessages(prev[key] ?? [], [message]),
@@ -88,7 +136,7 @@ export function useSession(
         socket.close();
       }
     };
-  }, [user.id, attempt]);
+  }, [user.id, attempt, markTyping, clearTyping]);
 
   // Lists load after the socket opens so the online flags match the server's view.
   useEffect(() => {
@@ -162,6 +210,24 @@ export function useSession(
     return true;
   }, []);
 
+  const sendTyping = useCallback((key: string) => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const now = Date.now();
+    if (now - (lastTypingSent.current.get(key) ?? 0) < TYPING_SEND_EVERY_MS) {
+      return;
+    }
+    lastTypingSent.current.set(key, now);
+    const { kind, id } = parseKey(key);
+    socket.send(
+      JSON.stringify(
+        kind === "dm"
+          ? { type: "typing", recipient_id: id }
+          : { type: "typing", room_id: id },
+      ),
+    );
+  }, []);
+
   const addBuddy = useCallback(
     async (username: string) => {
       await api.addBuddy(user.id, username);
@@ -209,8 +275,10 @@ export function useSession(
     unread,
     activeKey,
     notice,
+    typing,
     select,
     send,
+    sendTyping,
     addBuddy,
     createRoom,
     joinRoom,

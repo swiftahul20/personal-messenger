@@ -13,18 +13,26 @@ This is a learning project. Usernames are not passwords: anyone can connect as a
 - Retrieve persisted direct-message and room history
 - One Hub goroutine owns online client state; each WebSocket client has separate read and write loops
 
-Typing indicators, away messages, rich content, and real authentication are not included.
+Typing indicators are not stored. Away messages, rich content, and real authentication are not included.
 
 ## Requirements
 
 - Go 1.23 or newer
 - Docker Desktop with Docker Compose
 - Docker Hub access the first time images are pulled
-- Node.js 22.12 or newer and npm (for the React frontend)
+- Node.js 22.12 or newer and npm (only needed to run the React frontend outside Docker)
 
 ## Frontend Setup
 
-The React + TypeScript app is in `web/`. Tailwind CSS is installed, but no chat UI has been designed or implemented yet. Start the Go server first, then in another PowerShell terminal run:
+The React + TypeScript chat UI is in `web/`. To start the database, Go server, and frontend together with live frontend source updates, run:
+
+```powershell
+docker compose up --build
+```
+
+Open `http://localhost:5173`. In Docker, Vite proxies `/api` and `/ws` to the Go server by its Compose service name.
+
+To run the frontend directly on your host instead, start the Go server first, then in another PowerShell terminal run:
 
 ```powershell
 Set-Location web
@@ -125,6 +133,8 @@ Send a room message (replace `1` with the room's actual ID):
 
 Each connected recipient receives a JSON event with `"type":"message"`. Presence events have `"type":"presence"`; invalid messages and delivery failures return `"type":"error"`.
 
+To show that you are typing, send `{ "type": "typing", "recipient_id": 2 }` or `{ "type": "typing", "room_id": 1 }`. The server does not store it and sends no reply. The buddy, or the other room members, receive `{ "type": "typing", "user_id": 1 }` (with `room_id` for rooms). Resend about every two seconds while typing. Receivers should treat a gap of four seconds as the user having stopped.
+
 ### Fetch message history
 
 ```powershell
@@ -144,7 +154,7 @@ npm run dev
 
 Open `http://localhost:5173`. The dev server proxies `/api` and `/ws` to the Go server on port 8080, so start the server first.
 
-Sign in with a username in each window. Choose **Side by side** to run two signed-in users next to each other: a message sent in one window appears in the other as soon as the server delivers it. Both users need to be buddies, so add one from the other's window. Typing indicators are not built yet.
+Sign in with a username in each window. Choose **Side by side** to run two signed-in users next to each other: a message sent in one window appears in the other as soon as the server delivers it, and the other window shows "is typing..." while the sender types. Both users need to be buddies, so add one from the other's window.
 
 ## Run checks
 

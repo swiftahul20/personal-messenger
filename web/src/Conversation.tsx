@@ -116,6 +116,19 @@ export function Conversation({
   const connected = connection === "open";
   const composerId = `message-${slot}`;
 
+  const typingNames = (session.typing[activeKey] ?? []).map(
+    (userId) =>
+      buddies.find((item) => item.id === userId)?.username ?? `User ${userId}`,
+  );
+  const typingLabel =
+    typingNames.length === 0
+      ? ""
+      : typingNames.length === 1
+        ? `${typingNames[0]} is typing...`
+        : typingNames.length === 2
+          ? `${typingNames[0]} and ${typingNames[1]} are typing...`
+          : "Several people are typing...";
+
   function submit(event?: FormEvent) {
     event?.preventDefault();
     const content = draft.trim();
@@ -180,6 +193,10 @@ export function Conversation({
         {list.length > 0 ? <Transcript session={session} list={list} /> : null}
       </div>
 
+      <p role="status" className="min-h-5 px-3 text-xs text-muted">
+        {typingLabel}
+      </p>
+
       <form onSubmit={submit} className="border-t border-line bg-panel p-2">
         {notice ? (
           <p role="alert" className="mb-2 font-bold text-danger">
@@ -209,7 +226,10 @@ export function Conversation({
             rows={2}
             maxLength={4000}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              if (event.target.value.trim()) session.sendTyping(activeKey);
+            }}
             onKeyDown={onKeyDown}
             disabled={!connected}
             className="min-h-11 min-w-0 flex-1 resize-none rounded-win border border-line bg-white p-2 text-ink disabled:bg-selected"

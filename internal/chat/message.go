@@ -25,6 +25,7 @@ type Event struct {
 	Type    string   `json:"type"`
 	Message *Message `json:"message,omitempty"`
 	UserID  int      `json:"user_id,omitempty"`
+	RoomID  int      `json:"room_id,omitempty"`
 	Online  *bool    `json:"online,omitempty"`
 	Error   string   `json:"error,omitempty"`
 }

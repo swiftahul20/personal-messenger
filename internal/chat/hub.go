@@ -122,6 +122,11 @@ func (h *Hub) notifyPresence(ctx context.Context, clients map[int]*Client, userI
 }
 
 func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedMessage) {
+	if queued.message.Type == "typing" {
+		h.routeTyping(ctx, clients, queued)
+		return
+	}
+
 	message := queued.message
 	message.Content = strings.TrimSpace(message.Content)
 	if len(message.Content) == 0 || len(message.Content) > 4000 {
@@ -175,6 +180,43 @@ func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedM
 		}
 	default:
 		h.sendError(clients[queued.senderID], "type must be dm or room")
+	}
+}
+
+// Typing events are not stored, and invalid ones are dropped without an error to the sender.
+func (h *Hub) routeTyping(ctx context.Context, clients map[int]*Client, queued queuedMessage) {
+	message := queued.message
+	event := Event{Type: "typing", UserID: queued.senderID}
+
+	switch {
+	case message.RoomID > 0 && message.RecipientID == 0:
+		member, err := h.store.IsRoomMember(ctx, message.RoomID, queued.senderID)
+		if err != nil || !member {
+			return
+		}
+		memberIDs, err := h.store.RoomMemberIDs(ctx, message.RoomID)
+		if err != nil {
+			return
+		}
+		event.RoomID = message.RoomID
+		for _, id := range memberIDs {
+			if id != queued.senderID {
+				h.deliverTyping(clients, id, event)
+			}
+		}
+	case message.RecipientID > 0 && message.RoomID == 0 && message.RecipientID != queued.senderID:
+		allowed, err := h.store.AreBuddies(ctx, queued.senderID, message.RecipientID)
+		if err != nil || !allowed {
+			return
+		}
+		h.deliverTyping(clients, message.RecipientID, event)
+	}
+}
+
+// A full send buffer drops the typing event instead of evicting the client.
+func (h *Hub) deliverTyping(clients map[int]*Client, userID int, event Event) {
+	if client := clients[userID]; client != nil {
+		client.deliver(event)
 	}
 }
 
