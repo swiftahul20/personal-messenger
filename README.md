@@ -9,7 +9,11 @@ This is a learning project. Usernames are not passwords: anyone can connect as a
 - Create or retrieve a username-only user
 - Add buddies and see their current online status
 - Send real-time 1:1 direct messages to buddies
+- Show actual sender usernames in room messages
+- Reconnect WebSocket sessions automatically after a disconnect
 - Insert Unicode emoji mapped from classic Yahoo emoticon codes
+- Show sender usernames in room messages
+- Reconnect WebSockets automatically after a dropped connection
 - Create rooms, join rooms, and exchange messages with room members
 - Retrieve persisted direct-message and room history
 - One Hub goroutine owns online client state; each WebSocket client has separate read and write loops

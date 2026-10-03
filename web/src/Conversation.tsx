@@ -37,8 +37,11 @@ function Transcript({
 }) {
   const { user, buddies } = session;
   const names = new Map(buddies.map((buddy) => [buddy.id, buddy.username]));
-  const nameOf = (id: number) =>
-    id === user.id ? user.username : (names.get(id) ?? `User ${id}`);
+  const nameOf = (message: ChatMessage) =>
+    message.sender_name ||
+    (message.sender_id === user.id
+      ? user.username
+      : (names.get(message.sender_id) ?? `User ${message.sender_id}`));
 
   return (
     <>
@@ -61,7 +64,7 @@ function Transcript({
                 <span
                   className={`font-bold ${mine ? "text-brand" : "text-ink"}`}
                 >
-                  {nameOf(message.sender_id)}
+                  {nameOf(message)}
                 </span>
                 <time dateTime={message.sent_at} className="text-xs text-muted">
                   {formatTime(message.sent_at)}
@@ -236,14 +239,16 @@ export function Conversation({
         ) : null}
         {!connected ? (
           <p className="mb-2 text-muted">
-            {connection === "connecting" ? "Connecting..." : "Disconnected."}{" "}
+            {connection === "connecting"
+              ? "Connecting..."
+              : "Connection lost. Retrying automatically."}{" "}
             {connection === "closed" ? (
               <button
                 type="button"
                 className="text-brand underline"
                 onClick={session.reconnect}
               >
-                Reconnect
+                Retry now
               </button>
             ) : null}
           </p>

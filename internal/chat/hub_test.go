@@ -9,9 +9,13 @@ import (
 type fakeStore struct {
 	buddies map[[2]int]bool
 	rooms   map[int][]int
+	users   map[int]string
 }
 
-func (f fakeStore) SaveMessage(context.Context, *Message) error { return nil }
+func (f fakeStore) SaveMessage(_ context.Context, message *Message) error {
+	message.SenderName = f.users[message.SenderID]
+	return nil
+}
 
 func (f fakeStore) AreBuddies(_ context.Context, a, b int) (bool, error) {
 	return f.buddies[[2]int{a, b}] || f.buddies[[2]int{b, a}], nil
@@ -108,5 +112,22 @@ func TestTypingInRoomSkipsSenderAndNonMembers(t *testing.T) {
 	}
 	if event, ok := receive(clients[1]); ok {
 		t.Fatalf("sender received %+v", event)
+	}
+}
+
+func TestRoomMessageIncludesRealSenderName(t *testing.T) {
+	store := fakeStore{
+		rooms: map[int][]int{7: {1, 2}},
+		users: map[int]string{1: "alice"},
+	}
+	Hub, clients := startHub(t, store, 1, 2)
+
+	if err := Hub.Publish(IncomingMessage{Type: "room", RoomID: 7, Content: "hello"}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	event, ok := receive(clients[2])
+	if !ok || event.Type != "message" || event.Message == nil || event.Message.SenderName != "alice" {
+		t.Fatalf("room member got %+v, delivered=%v", event, ok)
 	}
 }

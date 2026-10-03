@@ -140,10 +140,15 @@ func (p *Postgres) ListRooms(ctx context.Context, userID int) ([]room.Room, erro
 
 func (p *Postgres) SaveMessage(ctx context.Context, message *chat.Message) error {
 	return p.pool.QueryRow(ctx, `
-		INSERT INTO messages (sender_id, recipient_id, room_id, content)
-		VALUES ($1, $2, $3, $4) RETURNING id, sent_at`,
+		WITH saved AS (
+			INSERT INTO messages (sender_id, recipient_id, room_id, content)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id, sender_id, sent_at
+		)
+		SELECT saved.id, saved.sent_at, sender.username
+		FROM saved JOIN users sender ON sender.id = saved.sender_id`,
 		message.SenderID, message.RecipientID, message.RoomID, message.Content).
-		Scan(&message.ID, &message.SentAt)
+		Scan(&message.ID, &message.SentAt, &message.SenderName)
 }
 
 func (p *Postgres) AreBuddies(ctx context.Context, userID, buddyID int) (bool, error) {
@@ -194,11 +199,15 @@ func (p *Postgres) BuddyIDs(ctx context.Context, userID int) ([]int, error) {
 
 func (p *Postgres) DMHistory(ctx context.Context, userID, buddyID, limit int) ([]chat.Message, error) {
 	rows, err := p.pool.Query(ctx, `
-		SELECT id, sender_id, recipient_id, room_id, content, sent_at FROM (
+		SELECT history.id, history.sender_id, history.recipient_id, history.room_id,
+			history.content, history.sent_at, sender.username
+		FROM (
 			SELECT id, sender_id, recipient_id, room_id, content, sent_at FROM messages
 			WHERE room_id IS NULL AND ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
 			ORDER BY sent_at DESC LIMIT $3
-		) history ORDER BY sent_at ASC`, userID, buddyID, limit)
+		) history
+		JOIN users sender ON sender.id = history.sender_id
+		ORDER BY history.sent_at ASC`, userID, buddyID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -207,10 +216,14 @@ func (p *Postgres) DMHistory(ctx context.Context, userID, buddyID, limit int) ([
 
 func (p *Postgres) RoomHistory(ctx context.Context, roomID, limit int) ([]chat.Message, error) {
 	rows, err := p.pool.Query(ctx, `
-		SELECT id, sender_id, recipient_id, room_id, content, sent_at FROM (
+		SELECT history.id, history.sender_id, history.recipient_id, history.room_id,
+			history.content, history.sent_at, sender.username
+		FROM (
 			SELECT id, sender_id, recipient_id, room_id, content, sent_at FROM messages
 			WHERE room_id = $1 ORDER BY sent_at DESC LIMIT $2
-		) history ORDER BY sent_at ASC`, roomID, limit)
+		) history
+		JOIN users sender ON sender.id = history.sender_id
+		ORDER BY history.sent_at ASC`, roomID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +235,7 @@ func scanMessages(rows pgx.Rows) ([]chat.Message, error) {
 	messages := make([]chat.Message, 0)
 	for rows.Next() {
 		var message chat.Message
-		if err := rows.Scan(&message.ID, &message.SenderID, &message.RecipientID, &message.RoomID, &message.Content, &message.SentAt); err != nil {
+		if err := rows.Scan(&message.ID, &message.SenderID, &message.RecipientID, &message.RoomID, &message.Content, &message.SentAt, &message.SenderName); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		messages = append(messages, message)

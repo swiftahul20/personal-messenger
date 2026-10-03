@@ -8,6 +8,7 @@ import (
 type Message struct {
 	ID          int64     `json:"id"`
 	SenderID    int       `json:"sender_id"`
+	SenderName  string    `json:"sender_name"`
 	RecipientID *int      `json:"recipient_id,omitempty"`
 	RoomID      *int      `json:"room_id,omitempty"`
 	Content     string    `json:"content"`

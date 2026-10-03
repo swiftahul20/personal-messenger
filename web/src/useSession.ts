@@ -21,6 +21,8 @@ function parseKey(key: string): { kind: string; id: number } {
 // The sender repeats typing events while the draft changes, so a gap longer than this means they stopped.
 const TYPING_EXPIRES_MS = 4000;
 const TYPING_SEND_EVERY_MS = 2000;
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
 
 // syncVersion changes when either window adds a buddy or room, so both lists reload.
 export function useSession(
@@ -42,6 +44,8 @@ export function useSession(
   const [typing, setTyping] = useState<Record<string, number[]>>({});
 
   const socketRef = useRef<WebSocket | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<number | null>(null);
   const activeRef = useRef<string | null>(null);
   const loadedRef = useRef(new Set<string>());
   const typingTimers = useRef(new Map<string, number>());
@@ -83,11 +87,35 @@ export function useSession(
   }, [user.id, attempt]);
 
   useEffect(() => {
+    let disposed = false;
     const socket = new WebSocket(socketUrl(user.id));
     socketRef.current = socket;
 
-    socket.onopen = () => setConnection("open");
-    socket.onclose = () => setConnection("closed");
+    socket.onopen = () => {
+      if (disposed) return;
+      reconnectAttemptRef.current = 0;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      setConnection("open");
+    };
+    socket.onclose = () => {
+      if (disposed) return;
+      setConnection("closed");
+      const delay = Math.min(
+        RECONNECT_BASE_MS * 2 ** reconnectAttemptRef.current,
+        RECONNECT_MAX_MS,
+      );
+      reconnectAttemptRef.current += 1;
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        if (!disposed) {
+          setConnection("connecting");
+          setAttempt((value) => value + 1);
+        }
+      }, delay);
+    };
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data as string) as ServerEvent;
       if (data.type === "presence") {
@@ -126,6 +154,11 @@ export function useSession(
     };
 
     return () => {
+      disposed = true;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       socket.onclose = null;
       socket.onmessage = null;
       // Closing a socket that is still connecting logs a browser warning.
@@ -255,6 +288,11 @@ export function useSession(
   );
 
   const reconnect = useCallback(() => {
+    reconnectAttemptRef.current = 0;
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     setConnection("connecting");
     setAttempt((value) => value + 1);
   }, []);

@@ -9,7 +9,7 @@ import { titleButton, Window } from "./Window";
 const CONNECTION_TEXT: Record<Connection, string> = {
   connecting: "Connecting...",
   open: "Connected",
-  closed: "Disconnected",
+  closed: "Reconnecting...",
 };
 
 interface MessengerProps {
