@@ -41,6 +41,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/users/{userID}/buddies", h.addBuddy)
 	mux.HandleFunc("GET /api/users/{userID}/rooms", h.listRooms)
 	mux.HandleFunc("POST /api/rooms", h.createRoom)
+	mux.HandleFunc("GET /api/rooms", h.browseRooms)
+	mux.HandleFunc("GET /api/rooms/{roomID}/members", h.roomMembers)
 	mux.HandleFunc("POST /api/rooms/{roomID}/join", h.joinRoom)
 	mux.HandleFunc("GET /api/messages/dm", h.dmHistory)
 	mux.HandleFunc("GET /api/messages/room", h.roomHistory)
@@ -161,6 +163,52 @@ func (h *Handler) listRooms(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+const roomSearchMaxLength = 100
+
+func (h *Handler) browseRooms(w http.ResponseWriter, r *http.Request) {
+	userID, ok := queryID(w, r, "user_id")
+	if !ok {
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len([]rune(query)) > roomSearchMaxLength {
+		writeError(w, http.StatusBadRequest, "search text must be 100 characters or fewer")
+		return
+	}
+	result, err := h.rooms.BrowseRooms(r.Context(), userID, query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not search rooms")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) roomMembers(w http.ResponseWriter, r *http.Request) {
+	roomID, ok := pathID(w, r, "roomID")
+	if !ok {
+		return
+	}
+	userID, ok := queryID(w, r, "user_id")
+	if !ok {
+		return
+	}
+	member, err := h.chat.IsRoomMember(r.Context(), roomID, userID)
+	if err != nil || !member {
+		writeError(w, http.StatusForbidden, "user is not a member of this room")
+		return
+	}
+	members, err := h.rooms.RoomMembers(r.Context(), roomID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not list room members")
+		return
+	}
+	presence := h.hub.OnlineUsers()
+	for i := range members {
+		members[i].Online = presence[members[i].ID]
+	}
+	writeJSON(w, http.StatusOK, members)
 }
 
 func (h *Handler) dmHistory(w http.ResponseWriter, r *http.Request) {

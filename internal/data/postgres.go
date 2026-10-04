@@ -138,6 +138,50 @@ func (p *Postgres) ListRooms(ctx context.Context, userID int) ([]room.Room, erro
 	return rooms, rows.Err()
 }
 
+func (p *Postgres) BrowseRooms(ctx context.Context, userID int, query string) ([]room.Listing, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT r.id, r.name, r.created_at,
+			(SELECT count(*) FROM room_members m WHERE m.room_id = r.id) AS member_count,
+			EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = r.id AND m.user_id = $1) AS joined
+		FROM rooms r
+		WHERE $2::text = '' OR position(lower($2::text) in lower(r.name)) > 0
+		ORDER BY member_count DESC, r.name
+		LIMIT 50`, userID, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	listings := make([]room.Listing, 0)
+	for rows.Next() {
+		var item room.Listing
+		if err := rows.Scan(&item.ID, &item.Name, &item.CreatedAt, &item.MemberCount, &item.Joined); err != nil {
+			return nil, err
+		}
+		listings = append(listings, item)
+	}
+	return listings, rows.Err()
+}
+
+func (p *Postgres) RoomMembers(ctx context.Context, roomID int) ([]room.Member, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT u.id, u.username
+		FROM room_members m JOIN users u ON u.id = m.user_id
+		WHERE m.room_id = $1 ORDER BY u.username`, roomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	members := make([]room.Member, 0)
+	for rows.Next() {
+		var member room.Member
+		if err := rows.Scan(&member.ID, &member.Username); err != nil {
+			return nil, err
+		}
+		members = append(members, member)
+	}
+	return members, rows.Err()
+}
+
 func (p *Postgres) SaveMessage(ctx context.Context, message *chat.Message) error {
 	return p.pool.QueryRow(ctx, `
 		WITH saved AS (

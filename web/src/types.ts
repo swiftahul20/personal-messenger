@@ -14,6 +14,17 @@ export interface Room {
   created_at: string;
 }
 
+export interface RoomListing extends Room {
+  member_count: number;
+  joined: boolean;
+}
+
+export interface RoomMember {
+  id: number;
+  username: string;
+  online: boolean;
+}
+
 export interface ChatMessage {
   id: number;
   sender_id: number;

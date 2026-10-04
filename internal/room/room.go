@@ -14,10 +14,24 @@ type Room struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Listing struct {
+	Room
+	MemberCount int  `json:"member_count"`
+	Joined      bool `json:"joined"`
+}
+
+type Member struct {
+	ID       int    `json:"id"`
+	Username string `json:"username"`
+	Online   bool   `json:"online"`
+}
+
 type Store interface {
 	CreateRoom(context.Context, int, string) (Room, error)
 	JoinRoom(context.Context, int, int) error
 	ListRooms(context.Context, int) ([]Room, error)
+	BrowseRooms(ctx context.Context, userID int, query string) ([]Listing, error)
+	RoomMembers(ctx context.Context, roomID int) ([]Member, error)
 }
 
 func ValidateName(name string) error {

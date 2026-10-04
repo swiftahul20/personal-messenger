@@ -1,4 +1,11 @@
-import type { Buddy, ChatMessage, Room, User } from "./types";
+import type {
+  Buddy,
+  ChatMessage,
+  Room,
+  RoomListing,
+  RoomMember,
+  User,
+} from "./types";
 
 export const HISTORY_PAGE_SIZE = 100;
 const HISTORY_FETCH_SIZE = HISTORY_PAGE_SIZE + 1;
@@ -43,6 +50,12 @@ export const api = {
   rooms: (userId: number) => request<Room[]>(`/api/users/${userId}/rooms`),
   createRoom: (userId: number, name: string) =>
     post<Room>("/api/rooms", { user_id: userId, name }),
+  browseRooms: (userId: number, query: string) =>
+    request<RoomListing[]>(
+      `/api/rooms?user_id=${userId}&q=${encodeURIComponent(query)}`,
+    ),
+  roomMembers: (userId: number, roomId: number) =>
+    request<RoomMember[]>(`/api/rooms/${roomId}/members?user_id=${userId}`),
   joinRoom: (userId: number, roomId: number) =>
     post<{ status: string }>(`/api/rooms/${roomId}/join`, { user_id: userId }),
   dmHistory: (userId: number, withId: number, beforeId?: number) =>

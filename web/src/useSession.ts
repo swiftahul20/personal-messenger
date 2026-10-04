@@ -328,11 +328,15 @@ export function useSession(
   );
 
   const joinRoom = useCallback(
-    async (roomId: number) => {
-      await api.joinRoom(user.id, roomId);
+    async (room: Room) => {
+      await api.joinRoom(user.id, room.id);
+      setRooms((prev) =>
+        prev.some((item) => item.id === room.id) ? prev : [...prev, room],
+      );
       onShared();
+      select(`room:${room.id}`);
     },
-    [user.id, onShared],
+    [user.id, onShared, select],
   );
 
   const reconnect = useCallback(() => {
@@ -371,6 +375,7 @@ export function useSession(
     addBuddy,
     createRoom,
     joinRoom,
+    syncVersion,
     reconnect,
     retryLists,
     retryHistory: loadHistory,

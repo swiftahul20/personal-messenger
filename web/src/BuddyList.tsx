@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { RoomBrowser } from "./RoomBrowser";
 import type { Session } from "./useSession";
 import { inputClass, secondaryButton } from "./Window";
 
@@ -193,7 +194,7 @@ export function BuddyList({
           </h3>
           {rooms.length === 0 ? (
             <p className="px-2 pb-1 text-muted">
-              No rooms yet. Create one, or join with a room ID.
+              No rooms yet. Find one to join, or create your own.
             </p>
           ) : (
             <ul>
@@ -218,27 +219,16 @@ export function BuddyList({
               })}
             </ul>
           )}
+          <RoomBrowser session={session} />
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer px-2 py-2 text-brand sm:min-h-9">
-              Create or join a room
+              Create a room
             </summary>
             <AddForm
               label="New room name"
               button="Create room"
               pendingButton="Creating..."
               onSubmit={session.createRoom}
-            />
-            <AddForm
-              label="Join by room ID"
-              button="Join room"
-              pendingButton="Joining..."
-              inputMode="numeric"
-              onSubmit={async (value) => {
-                const id = Number(value);
-                if (!Number.isInteger(id) || id <= 0)
-                  throw new Error("A room ID is a whole number.");
-                await session.joinRoom(id);
-              }}
             />
           </details>
         </>

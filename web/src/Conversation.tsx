@@ -5,6 +5,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { RoomMembers } from "./RoomMembers";
 import type { ChatMessage } from "./types";
 import type { Session } from "./useSession";
 import { primaryButton, secondaryButton } from "./Window";
@@ -112,6 +113,7 @@ export function Conversation({
   } = session;
   const [draft, setDraft] = useState("");
   const [emoticonsOpen, setEmoticonsOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const prependScrollRef = useRef<{
@@ -241,7 +243,20 @@ export function Conversation({
           {title}
         </h3>
         <span className="text-xs text-muted">{subtitle}</span>
+        {room ? (
+          <button
+            type="button"
+            className={secondaryButton}
+            aria-expanded={membersOpen}
+            onClick={() => setMembersOpen((open) => !open)}
+          >
+            Members
+          </button>
+        ) : null}
       </div>
+      {room && membersOpen ? (
+        <RoomMembers key={room.id} session={session} roomId={room.id} />
+      ) : null}
 
       <div
         ref={logRef}

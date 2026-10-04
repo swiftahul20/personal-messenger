@@ -14,7 +14,8 @@ This is a learning project. Usernames are not passwords: anyone can connect as a
 - Insert Unicode emoji mapped from classic Yahoo emoticon codes
 - See whether messages are saved or queued to a live recipient
 - Load older messages in pages while preserving scroll position
-- Create rooms, join rooms, and exchange messages with room members
+- Create rooms, find rooms by name, join them, and exchange messages with room members
+- See who is in a room and who is online
 - Retrieve persisted direct-message and room history
 - One Hub goroutine owns online client state; each WebSocket client has separate read and write loops
 
@@ -22,22 +23,48 @@ Typing indicators are not stored. Away messages, rich content, and real authenti
 
 ## Requirements
 
-- Go 1.23 or newer
-- Docker Desktop with Docker Compose
-- Docker Hub access the first time images are pulled
-- Node.js 22.12 or newer and npm (only needed to run the React frontend outside Docker)
+- Docker Desktop with Docker Compose, and Docker Hub access the first time images are pulled
+- Free ports `5173` (web), `8080` (API), and `5432` (PostgreSQL). Stop any local PostgreSQL first.
+- Go 1.23 or newer and Node.js 22.12 or newer are only needed to run the server or web client outside Docker, or to run the checks.
 
-## Frontend Setup
+The commands in this file use PowerShell syntax. On macOS or Linux, run `docker compose` the same way and use `curl` instead of `Invoke-RestMethod`.
 
-The React + TypeScript chat UI is in `web/`. To start the database, Go server, and frontend together with live frontend source updates, run:
+## Quick start
 
 ```powershell
+git clone https://github.com/swiftahul20/personal-messenger.git
+Set-Location personal-messenger
 docker compose up --build
 ```
 
-Open `http://localhost:5173`. In Docker, Vite proxies `/api` and `/ws` to the Go server by its Compose service name.
+The first run downloads images, compiles the Go server, and installs the web dependencies, which can take a few minutes. The web app is ready when the log prints Vite's `Local: http://localhost:5173/` line.
 
-To run the frontend directly on your host instead, start the Go server first, then in another PowerShell terminal run:
+1. Open `http://localhost:5173`.
+2. Sign in as `alice`. A username is all it takes; there is no password.
+3. Choose **Side by side**, then sign in as `bob` in the second window.
+4. In Alice's window, type `bob` under **Add buddy**, select him, and send a message. It appears in Bob's window.
+
+The API is at `http://localhost:8080`, and PostgreSQL is exposed on port `5432`. The server applies `internal/data/schema.sql` at startup. Press `Ctrl+C` to stop the services, or run `docker compose down` to stop and remove the containers. The named `postgres_data` volume keeps your data; `docker compose down -v` deletes it too.
+
+### Troubleshooting
+
+- **A port is already in use:** stop whatever is using `5173`, `8080`, or `5432`, then run `docker compose up` again.
+- **Edits under `web/` do not show up:** Docker bind mounts can miss file changes on Windows. Run `docker compose restart web`.
+- **Images fail to download:** Docker cannot reach Docker Hub. Check Docker Desktop's network and proxy settings.
+- **Docker fails with read-only or input/output errors:** the disk is probably full. Free space, then restart Docker Desktop.
+
+## Run the services separately
+
+Use this to work on the Go server or the web client outside Docker. Start only the database in Docker, then run the server and the client in separate PowerShell terminals:
+
+```powershell
+docker compose up -d db
+```
+
+```powershell
+$env:DATABASE_URL = 'postgres://messenger:messenger@localhost:5432/messenger?sslmode=disable'
+go run ./cmd/chat-server
+```
 
 ```powershell
 Set-Location web
@@ -45,32 +72,7 @@ npm ci
 npm run dev
 ```
 
-Open the Vite URL printed in the terminal, usually `http://localhost:5173`. The development server proxies `/api` and `/ws` to the Go server on port `8080`.
-
-To verify or lint the frontend:
-
-```powershell
-Set-Location web
-npm run build
-npm run lint
-```
-
-## Run with Docker Compose
-
-From the project directory:
-
-```powershell
-docker compose up --build
-```
-
-The server is available at `http://localhost:8080`; PostgreSQL is exposed on port `5432`. The server applies `internal/data/schema.sql` at startup. Stop the services with `Ctrl+C`; use `docker compose down` to stop and remove the containers. The named `postgres_data` volume preserves database data. To delete that data too, run `docker compose down -v`.
-
-To run only PostgreSQL in Docker and the Go server on the host, start the database with `docker compose up -d db`, then in PowerShell run:
-
-```powershell
-$env:DATABASE_URL = 'postgres://messenger:messenger@localhost:5432/messenger?sslmode=disable'
-go run ./cmd/chat-server
-```
+Open the Vite URL, usually `http://localhost:5173`. The dev server proxies `/api` and `/ws` to the Go server on port `8080`.
 
 ## API
 
@@ -84,6 +86,8 @@ All request and response bodies use JSON.
 | `POST` | `/api/users/{userID}/buddies`                      | Add a buddy by username                    |
 | `GET`  | `/api/users/{userID}/rooms`                        | List rooms the user joined                 |
 | `POST` | `/api/rooms`                                       | Create a room; creator joins automatically |
+| `GET`  | `/api/rooms?user_id={id}&q={text}`                 | Find rooms by name (all rooms are public)  |
+| `GET`  | `/api/rooms/{roomID}/members?user_id={id}`         | List room members; members only            |
 | `POST` | `/api/rooms/{roomID}/join`                         | Join a room                                |
 | `GET`  | `/api/messages/dm?user_id={id}&with={buddyID}`     | Fetch direct-message history               |
 | `GET`  | `/api/messages/room?user_id={id}&room_id={roomID}` | Fetch room history                         |
@@ -147,27 +151,30 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/messages/dm?user_id=$($alice.i
 Invoke-RestMethod -Uri "http://localhost:8080/api/messages/room?user_id=$($alice.id)&room_id=$($room.id)"
 ```
 
-## Web client
+## Using the web client
 
-A React, TypeScript, and Tailwind client lives in `web/`. Design direction is in `DESIGN.md`. It needs Node 20.19 or newer (22.13 or newer is recommended).
-
-```powershell
-cd web
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173`. The dev server proxies `/api` and `/ws` to the Go server on port 8080, so start the server first.
+The React, TypeScript, and Tailwind client lives in `web/`. Design direction is in `DESIGN.md`.
 
 Sign in with a username in each window. Choose **Side by side** to run two signed-in users next to each other: a message sent in one window appears in the other as soon as the server delivers it, and the other window shows "is typing..." while the sender types. Use the emoji button to insert a Unicode equivalent of a classic Yahoo emoticon at the cursor. Both users need to be buddies, so add one from the other's window.
 
+Use **Find rooms** in the sidebar to search rooms by name and join one. Every room is public, so any signed-in user can find and join it. Use **Members** in a room's header to see who is in it. Member online status is refreshed every 15 seconds.
+
 ## Run checks
+
+The Go checks need Go installed locally; the web checks need Node.
 
 ```powershell
 go test ./...
-go test -race ./...
 go build ./cmd/chat-server
 ```
+
+```powershell
+Set-Location web
+npm run lint
+npm run build
+```
+
+`go test -race ./...` also works, but it needs cgo and a C compiler, which Windows does not have by default.
 
 ## Project layout
 
@@ -180,7 +187,7 @@ internal/chat/         Hub, clients, and chat message contracts
 internal/data/         PostgreSQL store and embedded schema
 internal/room/         Room domain types and validation
 internal/user/         User domain types and validation
-docker-compose.yml     Local PostgreSQL and server
+docker-compose.yml     Local PostgreSQL, Go server, and web dev server
 Dockerfile             Multi-stage Go build
 instructions.md        Original architecture and build notes
 ```
