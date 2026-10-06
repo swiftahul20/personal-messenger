@@ -25,6 +25,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    #networks:
+    #  - shared-net
 
   web:
     image: node:22-alpine
@@ -40,7 +42,13 @@ services:
     depends_on:
       server:
         condition: service_started
+    #networks:
+    #  - shared-net
 
 volumes:
   postgres_data:
   web_node_modules:
+
+networks:
+  shared-net:
+    external: true
