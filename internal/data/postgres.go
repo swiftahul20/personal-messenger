@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,6 +40,36 @@ func (p *Postgres) CreateOrGet(ctx context.Context, username string) (user.User,
 		ON CONFLICT (username) DO UPDATE SET username = EXCLUDED.username
 		RETURNING id, username, created_at`, username).Scan(&result.ID, &result.Username, &result.CreatedAt)
 	return result, err
+}
+
+func (p *Postgres) EnsureBotUser(ctx context.Context, username string) (user.User, error) {
+	normalized := strings.TrimSpace(username)
+	if normalized == "" || !user.IsReservedUsername(normalized) {
+		normalized = user.DefaultBotUsername
+	}
+	return p.CreateOrGet(ctx, normalized)
+}
+
+func (p *Postgres) EnsureBotBuddyForAllUsers(ctx context.Context, botUserID int) error {
+	if botUserID <= 0 {
+		return nil
+	}
+	_, err := p.pool.Exec(ctx, `
+		INSERT INTO user_buddies (user_id, buddy_id)
+		SELECT u.id, $1
+		FROM users u
+		WHERE u.id <> $1
+		ON CONFLICT DO NOTHING`, botUserID)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `
+		INSERT INTO user_buddies (user_id, buddy_id)
+		SELECT $1, u.id
+		FROM users u
+		WHERE u.id <> $1
+		ON CONFLICT DO NOTHING`, botUserID)
+	return err
 }
 
 func (p *Postgres) FindByUsername(ctx context.Context, username string) (user.User, error) {

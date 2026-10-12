@@ -176,3 +176,45 @@ func TestDirectMessageAcknowledgesSaveWhenBuddyIsOffline(t *testing.T) {
 		t.Fatalf("sender acknowledgement got %+v, delivered=%v", event, ok)
 	}
 }
+
+func TestBotUserIsAlwaysOnline(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	hub := NewHub(fakeStore{})
+	go hub.Run(ctx)
+	hub.SetBotUserID(99)
+
+	status := hub.OnlineUsers()
+	if !status[99] {
+		t.Fatal("bot was not reported online")
+	}
+}
+
+func TestDirectMessageToBotGoesToBotInbox(t *testing.T) {
+	store := fakeStore{
+		buddies: map[[2]int]bool{{1, 2}: true},
+		users:   map[int]string{1: "alice"},
+	}
+	hub, clients := startHub(t, store, 1)
+	hub.SetBotUserID(2)
+
+	if err := hub.Publish(IncomingMessage{Type: "dm", RecipientID: 2, Content: "hello"}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case queued := <-hub.botInbox:
+		if queued.Message.Type != "dm" || queued.Message.RecipientID != 2 || queued.UserID != 1 {
+			t.Fatalf("bot inbox got %+v", queued)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("bot inbox never received the message")
+	}
+	if event, ok := receive(clients[1]); !ok || event.Type != "message" {
+		t.Fatalf("sender echo got %+v, delivered=%v", event, ok)
+	}
+	if event, ok := receive(clients[1]); !ok || event.Type != "ack" || event.Status != "sent" {
+		t.Fatalf("sender ack got %+v, delivered=%v", event, ok)
+	}
+}

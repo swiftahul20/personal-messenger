@@ -5,6 +5,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { isBotUsername } from "./bot";
 import { RoomMembers } from "./RoomMembers";
 import type { ChatMessage } from "./types";
 import type { Session } from "./useSession";
@@ -38,11 +39,14 @@ function Transcript({
 }) {
   const { user, buddies } = session;
   const names = new Map(buddies.map((buddy) => [buddy.id, buddy.username]));
-  const nameOf = (message: ChatMessage) =>
-    message.sender_name ||
-    (message.sender_id === user.id
-      ? user.username
-      : (names.get(message.sender_id) ?? `User ${message.sender_id}`));
+  const nameOf = (message: ChatMessage) => {
+    const senderName =
+      message.sender_name ||
+      (message.sender_id === user.id
+        ? user.username
+        : (names.get(message.sender_id) ?? `User ${message.sender_id}`));
+    return senderName;
+  };
 
   return (
     <>
@@ -68,6 +72,11 @@ function Transcript({
                 >
                   {nameOf(message)}
                 </span>
+                {isBotUsername(nameOf(message)) ? (
+                  <span className="rounded bg-brand/10 px-1 text-[10px] font-bold uppercase tracking-wide text-brand">
+                    BOT
+                  </span>
+                ) : null}
                 <time dateTime={message.sent_at} className="text-xs text-muted">
                   {formatTime(message.sent_at)}
                 </time>
@@ -161,9 +170,11 @@ export function Conversation({
     kind === "room" ? rooms.find((item) => item.id === id) : undefined;
   const title = buddy?.username ?? room?.name ?? "Conversation";
   const subtitle = buddy
-    ? buddy.online
-      ? "Online"
-      : "Offline"
+    ? isBotUsername(buddy.username)
+      ? "BOT • " + (buddy.online ? "Online" : "Offline")
+      : buddy.online
+        ? "Online"
+        : "Offline"
     : room
       ? `Room ID ${room.id}`
       : "";

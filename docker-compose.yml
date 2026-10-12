@@ -17,6 +17,8 @@ services:
 
   server:
     build: .
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgres://messenger:messenger@db:5432/messenger?sslmode=disable
       ADDR: :8080

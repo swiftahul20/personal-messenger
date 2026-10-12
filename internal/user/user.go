@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"time"
 )
 
+const DefaultBotUsername = "CyberKid00"
+
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{3,50}$`)
 var ErrInvalidUsername = errors.New("username must be 3-50 characters using letters, numbers, or underscores")
+var ErrReservedUsername = errors.New("username is reserved for the bot")
 
 type User struct {
 	ID        int       `json:"id"`
@@ -29,9 +33,16 @@ type Store interface {
 	ListBuddies(context.Context, int) ([]User, error)
 }
 
+func IsReservedUsername(username string) bool {
+	return strings.EqualFold(strings.TrimSpace(username), DefaultBotUsername)
+}
+
 func ValidateUsername(username string) error {
 	if !usernamePattern.MatchString(username) {
 		return ErrInvalidUsername
+	}
+	if IsReservedUsername(username) {
+		return ErrReservedUsername
 	}
 	return nil
 }

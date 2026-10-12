@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api } from "./api";
+import { BOT_USERNAME, isBotUsername } from "./bot";
 import type { User } from "./types";
 import { inputClass, primaryButton, Window } from "./Window";
 
@@ -21,6 +22,10 @@ export function SignIn({ slot, blockedUsername, onSignedIn }: SignInProps) {
     const name = username.trim();
     if (!USERNAME_PATTERN.test(name)) {
       setError("Use 3 to 50 letters, numbers, or underscores.");
+      return;
+    }
+    if (isBotUsername(name)) {
+      setError(`${BOT_USERNAME} is reserved for the built-in bot.`);
       return;
     }
     if (

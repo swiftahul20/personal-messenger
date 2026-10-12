@@ -19,6 +19,13 @@ type Hub struct {
 	broadcast  chan queuedMessage
 	online     chan onlineRequest
 	done       chan struct{}
+	botUserID  int
+	botInbox   chan BotMessage
+}
+
+type BotMessage struct {
+	UserID  int
+	Message IncomingMessage
 }
 
 type queuedMessage struct {
@@ -34,6 +41,7 @@ func NewHub(store Store) *Hub {
 		broadcast:  make(chan queuedMessage),
 		online:     make(chan onlineRequest),
 		done:       make(chan struct{}),
+		botInbox:   make(chan BotMessage, 32),
 	}
 }
 
@@ -97,11 +105,27 @@ func (h *Hub) Publish(message IncomingMessage, senderID int) error {
 	}
 }
 
+func (h *Hub) BotInbox() <-chan BotMessage {
+	return h.botInbox
+}
+
+func (h *Hub) SetBotUserID(userID int) {
+	h.botUserID = userID
+}
+
+func (h *Hub) BotUserID() int {
+	return h.botUserID
+}
+
 func (h *Hub) OnlineUsers() map[int]bool {
 	response := make(chan map[int]bool, 1)
 	select {
 	case h.online <- onlineRequest{response: response}:
-		return <-response
+		status := <-response
+		if h.botUserID > 0 {
+			status[h.botUserID] = true
+		}
+		return status
 	case <-h.done:
 		return map[int]bool{}
 	}
@@ -152,6 +176,16 @@ func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedM
 			return
 		}
 		event := Event{Type: "message", Message: &messageRecord}
+		if message.RecipientID == h.botUserID {
+			select {
+			case h.botInbox <- BotMessage{UserID: queued.senderID, Message: message}:
+			default:
+				h.sendError(clients[queued.senderID], "CyberKid00 is brb lol")
+			}
+			h.deliverTo(ctx, clients, queued.senderID, event)
+			h.sendAck(ctx, clients, queued.senderID, messageRecord.ID, false)
+			return
+		}
 		delivered := h.deliverTo(ctx, clients, *messageRecord.RecipientID, event)
 		h.deliverTo(ctx, clients, queued.senderID, event)
 		h.sendAck(ctx, clients, queued.senderID, messageRecord.ID, delivered)

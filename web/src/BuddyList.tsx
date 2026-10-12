@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { isBotUsername } from "./bot";
 import { RoomBrowser } from "./RoomBrowser";
 import type { Session } from "./useSession";
 import { inputClass, secondaryButton } from "./Window";
@@ -151,6 +152,7 @@ export function BuddyList({
             <ul>
               {sorted.map((buddy) => {
                 const key = `dm:${buddy.id}`;
+                const bot = isBotUsername(buddy.username);
                 return (
                   <li key={buddy.id}>
                     <button
@@ -170,10 +172,17 @@ export function BuddyList({
                       <span
                         className={`min-w-0 flex-1 truncate ${buddy.online ? "font-bold" : "text-muted"}`}
                       >
-                        {buddy.username}
+                        <span className="inline-flex items-center gap-1">
+                          <span className="truncate">{buddy.username}</span>
+                          {bot ? (
+                            <span className="shrink-0 rounded bg-brand/10 px-1 text-[10px] font-bold uppercase tracking-wide text-brand">
+                              BOT
+                            </span>
+                          ) : null}
+                        </span>
                       </span>
                       <span className="text-xs text-muted">
-                        {buddy.online ? "Online" : "Offline"}
+                        {bot ? "BOT" : buddy.online ? "Online" : "Offline"}
                       </span>
                       <Unread count={unread[key] ?? 0} />
                     </button>
