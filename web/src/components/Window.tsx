@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 interface WindowProps {
   title: string;
@@ -6,6 +6,7 @@ interface WindowProps {
   actions?: ReactNode;
   label: string;
   className?: string;
+  elementRef?: Ref<HTMLElement>;
   children: ReactNode;
 }
 
@@ -15,10 +16,12 @@ export function Window({
   actions,
   label,
   className = "",
+  elementRef,
   children,
 }: WindowProps) {
   return (
     <section
+      ref={elementRef}
       aria-label={label}
       className={`flex min-h-0 flex-col overflow-hidden rounded-win border border-brand bg-white shadow-window ${className}`}
     >

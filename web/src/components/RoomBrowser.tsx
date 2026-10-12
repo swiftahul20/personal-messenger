@@ -1,7 +1,7 @@
 import { useId, useRef, useState, type FormEvent } from "react";
-import { api } from "./api";
-import type { RoomListing } from "./types";
-import type { Session } from "./useSession";
+import { api } from "../api";
+import type { RoomListing } from "../types";
+import type { Session } from "../hooks/useSession";
 import { inputClass, secondaryButton } from "./Window";
 
 type LoadState = "idle" | "loading" | "ready" | "error";

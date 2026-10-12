@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
-import { isBotUsername } from "./bot";
+import { isBotUsername } from "../utils/bot";
 import { RoomBrowser } from "./RoomBrowser";
-import type { Session } from "./useSession";
+import type { Session } from "../hooks/useSession";
 import { inputClass, secondaryButton } from "./Window";
 
 interface AddFormProps {

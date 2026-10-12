@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { Pane } from "./Pane";
-import type { User } from "./types";
+import type { User } from "../types";
 
 type Layout = "single" | "split";
 

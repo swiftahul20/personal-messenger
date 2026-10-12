@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
-import { api } from "./api";
-import { BOT_USERNAME, isBotUsername } from "./bot";
-import type { User } from "./types";
+import { api } from "../api";
+import { BOT_USERNAME, isBotUsername } from "../utils/bot";
+import type { User } from "../types";
 import { inputClass, primaryButton, Window } from "./Window";
 
 interface SignInProps {

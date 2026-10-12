@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/swiftahul20/personal-messenger/internal/chat"
 )
@@ -71,6 +72,16 @@ func (b *Bot) Run(ctx context.Context) {
 func (b *Bot) handleMessage(ctx context.Context, packet chat.BotMessage) {
 	if !b.enabled {
 		b.sendAwayMessage(ctx, packet.UserID, "~*~ brb doin bot stuff ~*~")
+		return
+	}
+	if reply, handled := commandReply(packet.Message.Content, time.Now()); handled {
+		if err := b.hub.Publish(chat.IncomingMessage{
+			Type:        "dm",
+			RecipientID: packet.UserID,
+			Content:     reply,
+		}, b.botUserID); err != nil {
+			log.Printf("bot command reply to user %d failed: %v", packet.UserID, err)
+		}
 		return
 	}
 	if !b.limiter.Allow(packet.UserID) {

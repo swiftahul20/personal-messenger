@@ -17,9 +17,42 @@ This is a learning project. Usernames are not passwords: anyone can connect as a
 - Create rooms, find rooms by name, join them, and exchange messages with room members
 - See who is in a room and who is online
 - Retrieve persisted direct-message and room history
+- Chat with CyberKid00, the always-online bot buddy available to every user
+- Use CyberKid00 commands: `/help`, `/8ball`, `/roll [NdM]`, and `/time`
+- Send a BUZZ to an online buddy from a direct-message window
 - One Hub goroutine owns online client state; each WebSocket client has separate read and write loops
 
-Typing indicators are not stored. Away messages, rich content, and real authentication are not included.
+Typing indicators and BUZZ events are not stored. Rich content and real authentication are not included.
+
+## CyberKid00
+
+CyberKid00 is added to every user's buddy list and appears online. The username is reserved. Direct messages to the bot are saved in the normal conversation history.
+
+Slash commands are handled by the Go server without calling Gemini:
+
+| Command | What it does |
+| --- | --- |
+| `/help` | Lists the available commands and mentions BUZZ |
+| `/8ball [question]` | Replies with a random answer to a yes/no question |
+| `/roll [NdM]` | Rolls dice, defaulting to `1d6`; supports 1-100 dice with 2-1,000,000 sides |
+| `/time` | Shows the bot server's current time |
+
+Other messages use Gemini when `GEMINI_API_KEY` is configured. Without a key, the bot uses its static fallback replies. Non-command messages are limited by `BOT_USER_RPM` and `BOT_DAILY_CAP`.
+
+To configure the bot for Docker Compose, create a root-level `.env` file before starting the services. `.env` is ignored by Git. Add your Gemini API key there:
+
+```dotenv
+BOT_ENABLED=true
+BOT_USERNAME=CyberKid00
+BOT_USER_RPM=5
+BOT_DAILY_CAP=100
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_API_KEY=your-gemini-api-key
+```
+
+Do not commit the `.env` file or put the key in the Docker image. After changing these settings, restart the server container with `docker compose up -d --force-recreate server`.
+
+In the web client, open a direct message with CyberKid00 to use the commands. To BUZZ, open a direct message with an online buddy and select **Buzz** in the conversation header. The recipient's messenger window shakes briefly; reduced-motion settings suppress the animation. BUZZ is available for online buddies, not rooms or the bot.
 
 ## Requirements
 
@@ -142,6 +175,14 @@ Send a room message (replace `1` with the room's actual ID):
 
 Each connected recipient receives a JSON event with `"type":"message"`. The sender also receives an acknowledgement such as `{ "type": "ack", "message_id": 12, "status": "delivered" }`. `sent` means Postgres saved the message; `delivered` means the server queued it for at least one live recipient. It is not a read receipt. Presence events have `"type":"presence"`; invalid messages and delivery failures return `"type":"error"`.
 
+Send a BUZZ to a buddy without saving a chat message:
+
+```json
+{ "type": "buzz", "recipient_id": 2 }
+```
+
+The recipient receives `{ "type": "buzz", "user_id": 1 }`. Buddies must be online to receive a buzz.
+
 To show that you are typing, send `{ "type": "typing", "recipient_id": 2 }` or `{ "type": "typing", "room_id": 1 }`. The server does not store it and sends no reply. The buddy, or the other room members, receive `{ "type": "typing", "user_id": 1 }` (with `room_id` for rooms). Resend about every two seconds while typing. Receivers should treat a gap of four seconds as the user having stopped.
 
 ### Fetch message history
@@ -153,7 +194,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/messages/room?user_id=$($alice
 
 ## Using the web client
 
-The React, TypeScript, and Tailwind client lives in `web/`. Design direction is in `DESIGN.md`.
+The React, TypeScript, and Tailwind client lives in `web/src/`, organized into `components/`, `api/`, `hooks/`, `types/`, and `utils/`.
 
 Sign in with a username in each window. Choose **Side by side** to run two signed-in users next to each other: a message sent in one window appears in the other as soon as the server delivers it, and the other window shows "is typing..." while the sender types. Use the emoji button to insert a Unicode equivalent of a classic Yahoo emoticon at the cursor. Both users need to be buddies, so add one from the other's window.
 
@@ -180,10 +221,14 @@ npm run build
 
 ```text
 cmd/chat-server/       Server entry point
-web/                   React client
-DESIGN.md              Design direction for the client
+web/src/components/    React UI components
+web/src/api/           HTTP and WebSocket client functions
+web/src/hooks/         Session and connection state
+web/src/types/         Shared application and protocol types
+web/src/utils/         Pure chat and bot helpers
 internal/api/          HTTP and WebSocket endpoints
 internal/chat/         Hub, clients, and chat message contracts
+internal/bot/          Bot runtime, commands, Gemini responder, and limits
 internal/data/         PostgreSQL store and embedded schema
 internal/room/         Room domain types and validation
 internal/user/         User domain types and validation

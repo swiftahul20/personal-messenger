@@ -121,6 +121,47 @@ func TestTypingInRoomSkipsSenderAndNonMembers(t *testing.T) {
 	}
 }
 
+func TestBuzzReachesOnlyTheBuddy(t *testing.T) {
+	store := fakeStore{buddies: map[[2]int]bool{{1, 2}: true}}
+	hub, clients := startHub(t, store, 1, 2, 3)
+
+	if err := hub.Publish(IncomingMessage{Type: "buzz", RecipientID: 2}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	event, ok := receive(clients[2])
+	if !ok || event.Type != "buzz" || event.UserID != 1 {
+		t.Fatalf("buddy got %+v, delivered=%v", event, ok)
+	}
+	if event, ok := receive(clients[1]); ok {
+		t.Fatalf("sender received %+v", event)
+	}
+	if event, ok := receive(clients[3]); ok {
+		t.Fatalf("non-buddy received %+v", event)
+	}
+}
+
+func TestBuzzRequiresOnlineBuddy(t *testing.T) {
+	store := fakeStore{buddies: map[[2]int]bool{{1, 2}: true}}
+	hub, clients := startHub(t, store, 1)
+
+	if err := hub.Publish(IncomingMessage{Type: "buzz", RecipientID: 2}, 1); err != nil {
+		t.Fatal(err)
+	}
+	event, ok := receive(clients[1])
+	if !ok || event.Type != "error" || event.Error != "buddy is offline; buzz was not delivered" {
+		t.Fatalf("offline buzz result was %+v, delivered=%v", event, ok)
+	}
+
+	if err := hub.Publish(IncomingMessage{Type: "buzz", RecipientID: 3}, 1); err != nil {
+		t.Fatal(err)
+	}
+	event, ok = receive(clients[1])
+	if !ok || event.Type != "error" || event.Error != "recipient is not in your buddy list" {
+		t.Fatalf("non-buddy buzz result was %+v, delivered=%v", event, ok)
+	}
+}
+
 func TestRoomMessageIncludesRealSenderName(t *testing.T) {
 	store := fakeStore{
 		rooms: map[int][]int{7: {1, 2}},

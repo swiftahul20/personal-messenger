@@ -5,10 +5,11 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { isBotUsername } from "./bot";
+import { formatTime } from "../utils/chat";
+import { isBotUsername } from "../utils/bot";
 import { RoomMembers } from "./RoomMembers";
-import type { ChatMessage } from "./types";
-import type { Session } from "./useSession";
+import type { ChatMessage } from "../types";
+import type { Session } from "../hooks/useSession";
 import { primaryButton, secondaryButton } from "./Window";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -22,13 +23,6 @@ const EMOTICONS = [
   { emoji: "😮", code: ":-O", label: "Surprised" },
   { emoji: "😎", code: "B-)", label: "Cool" },
 ];
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function Transcript({
   session,
@@ -195,6 +189,10 @@ export function Conversation({
         : typingNames.length === 2
           ? `${typingNames[0]} and ${typingNames[1]} are typing...`
           : "Several people are typing...";
+  const buzzSender = session.buzz.userId
+    ? buddies.find((item) => item.id === session.buzz.userId)?.username ??
+      `User ${session.buzz.userId}`
+    : "";
 
   function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -254,6 +252,22 @@ export function Conversation({
           {title}
         </h3>
         <span className="text-xs text-muted">{subtitle}</span>
+        {buddy && !isBotUsername(buddy.username) ? (
+          <button
+            type="button"
+            className={secondaryButton}
+            aria-label={`Send BUZZ to ${buddy.username}`}
+            title={
+              buddy.online
+                ? `Make ${buddy.username}'s chat window shake`
+                : `${buddy.username} must be online to receive a BUZZ`
+            }
+            disabled={!connected || !buddy.online}
+            onClick={() => session.sendBuzz(activeKey)}
+          >
+            Buzz
+          </button>
+        ) : null}
         {room ? (
           <button
             type="button"
@@ -318,6 +332,7 @@ export function Conversation({
       </div>
 
       <p role="status" className="min-h-5 px-3 text-xs text-muted">
+        {buzzSender ? `BUZZ from ${buzzSender}! ` : ""}
         {typingLabel}
       </p>
 

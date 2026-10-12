@@ -5,7 +5,7 @@ import type {
   RoomListing,
   RoomMember,
   User,
-} from "./types";
+} from "../types";
 
 export const HISTORY_PAGE_SIZE = 100;
 const HISTORY_FETCH_SIZE = HISTORY_PAGE_SIZE + 1;

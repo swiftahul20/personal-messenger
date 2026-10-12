@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BuddyList } from "./BuddyList";
 import { Conversation } from "./Conversation";
 import { SignIn } from "./SignIn";
-import type { User } from "./types";
-import { useSession, type Connection } from "./useSession";
+import type { User } from "../types";
+import { useSession, type Connection } from "../hooks/useSession";
 import { titleButton, Window } from "./Window";
 
 const CONNECTION_TEXT: Record<Connection, string> = {
@@ -28,10 +28,38 @@ function Messenger({
   onSignOut,
 }: MessengerProps) {
   const session = useSession(user, syncVersion, onShared);
+  const windowRef = useRef<HTMLElement | null>(null);
   // Narrow windows show the list or the conversation. backedFrom remembers which conversation was left.
   const [backedFrom, setBackedFrom] = useState<string | null>(null);
   const showList =
     session.activeKey === null || backedFrom === session.activeKey;
+  const buzzSender = session.buzz.userId
+    ? session.buddies.find((buddy) => buddy.id === session.buzz.userId)
+        ?.username ?? `User ${session.buzz.userId}`
+    : "";
+
+  useEffect(() => {
+    const element = windowRef.current;
+    if (
+      session.buzz.version === 0 ||
+      !element ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+    const animation = element.animate(
+      [
+        { transform: "translateX(0)" },
+        { transform: "translateX(-5px)" },
+        { transform: "translateX(5px)" },
+        { transform: "translateX(-5px)" },
+        { transform: "translateX(5px)" },
+        { transform: "translateX(0)" },
+      ],
+      { duration: 650, easing: "ease-in-out" },
+    );
+    return () => animation.cancel();
+  }, [session.buzz.version]);
 
   const paneSession = {
     ...session,
@@ -47,12 +75,18 @@ function Messenger({
       status={CONNECTION_TEXT[session.connection]}
       label={`Window ${slot}, signed in as ${user.username}`}
       className="h-full w-full"
+      elementRef={windowRef}
       actions={
         <button type="button" className={titleButton} onClick={onSignOut}>
           Sign out
         </button>
       }
     >
+      {buzzSender ? (
+        <p role="status" className="sr-only">
+          Buzz from {buzzSender}.
+        </p>
+      ) : null}
       <div className="@container flex min-h-0 flex-1">
         <BuddyList
           session={paneSession}

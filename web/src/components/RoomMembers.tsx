@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { api } from "./api";
-import type { RoomMember } from "./types";
-import type { Session } from "./useSession";
+import { api } from "../api";
+import type { RoomMember } from "../types";
+import type { Session } from "../hooks/useSession";
 
 // Presence is only pushed to buddies, so member status is refreshed by polling.
 const REFRESH_MS = 15000;

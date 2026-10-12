@@ -146,6 +146,10 @@ func (h *Hub) notifyPresence(ctx context.Context, clients map[int]*Client, userI
 }
 
 func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedMessage) {
+	if queued.message.Type == "buzz" {
+		h.routeBuzz(ctx, clients, queued)
+		return
+	}
 	if queued.message.Type == "typing" {
 		h.routeTyping(ctx, clients, queued)
 		return
@@ -220,6 +224,24 @@ func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedM
 		h.sendAck(ctx, clients, queued.senderID, messageRecord.ID, delivered)
 	default:
 		h.sendError(clients[queued.senderID], "type must be dm or room")
+	}
+}
+
+func (h *Hub) routeBuzz(ctx context.Context, clients map[int]*Client, queued queuedMessage) {
+	message := queued.message
+	if message.RecipientID <= 0 || message.RoomID != 0 || message.Content != "" || message.RecipientID == queued.senderID {
+		h.sendError(clients[queued.senderID], "a buzz requires a different recipient_id")
+		return
+	}
+	allowed, err := h.store.AreBuddies(ctx, queued.senderID, message.RecipientID)
+	if err != nil || !allowed {
+		h.sendError(clients[queued.senderID], "recipient is not in your buddy list")
+		return
+	}
+
+	event := Event{Type: "buzz", UserID: queued.senderID}
+	if !h.deliverTo(ctx, clients, message.RecipientID, event) {
+		h.sendError(clients[queued.senderID], "buddy is offline; buzz was not delivered")
 	}
 }
 

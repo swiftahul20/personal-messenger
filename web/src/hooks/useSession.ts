@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, HISTORY_PAGE_SIZE, socketUrl } from "./api";
+import { api, HISTORY_PAGE_SIZE, socketUrl } from "../api";
 import type {
   Buddy,
   ChatMessage,
@@ -7,23 +7,12 @@ import type {
   Room,
   ServerEvent,
   User,
-} from "./types";
+} from "../types";
+import { mergeMessages, parseConversationKey } from "../utils/chat";
 
 export type Connection = "connecting" | "open" | "closed";
 export type LoadState = "loading" | "ready" | "error";
 export type Session = ReturnType<typeof useSession>;
-
-function mergeMessages(a: ChatMessage[], b: ChatMessage[]): ChatMessage[] {
-  const byId = new Map<number, ChatMessage>();
-  for (const message of a) byId.set(message.id, message);
-  for (const message of b) byId.set(message.id, message);
-  return [...byId.values()].sort((x, y) => x.id - y.id);
-}
-
-function parseKey(key: string): { kind: string; id: number } {
-  const [kind, rawId] = key.split(":");
-  return { kind, id: Number(rawId) };
-}
 
 // The sender repeats typing events while the draft changes, so a gap longer than this means they stopped.
 const TYPING_EXPIRES_MS = 4000;
@@ -52,6 +41,10 @@ export function useSession(
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [typing, setTyping] = useState<Record<string, number[]>>({});
+  const [buzz, setBuzz] = useState<{ version: number; userId: number | null }>({
+    version: 0,
+    userId: null,
+  });
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
@@ -60,6 +53,7 @@ export function useSession(
   const loadedRef = useRef(new Set<string>());
   const typingTimers = useRef(new Map<string, number>());
   const lastTypingSent = useRef(new Map<string, number>());
+  const buzzTimerRef = useRef<number | null>(null);
 
   const clearTyping = useCallback((key: string, userId: number) => {
     const timerKey = `${key}:${userId}`;
@@ -95,6 +89,16 @@ export function useSession(
       timers.clear();
     };
   }, [user.id, attempt]);
+
+  useEffect(
+    () => () => {
+      if (buzzTimerRef.current !== null) {
+        window.clearTimeout(buzzTimerRef.current);
+        buzzTimerRef.current = null;
+      }
+    },
+    [user.id],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -143,6 +147,15 @@ export function useSession(
           ? `room:${data.room_id}`
           : `dm:${data.user_id}`;
         markTyping(key, data.user_id);
+      } else if (data.type === "buzz") {
+        setBuzz((prev) => ({ version: prev.version + 1, userId: data.user_id }));
+        if (buzzTimerRef.current !== null) {
+          window.clearTimeout(buzzTimerRef.current);
+        }
+        buzzTimerRef.current = window.setTimeout(() => {
+          buzzTimerRef.current = null;
+          setBuzz((prev) => ({ ...prev, userId: null }));
+        }, 4000);
       } else if (data.type === "message") {
         const message = data.message;
         const otherId =
@@ -204,7 +217,7 @@ export function useSession(
 
   const loadHistory = useCallback(
     async (key: string) => {
-      const { kind, id } = parseKey(key);
+      const { kind, id } = parseConversationKey(key);
       setHistory((prev) => ({ ...prev, [key]: "loading" }));
       try {
         const list =
@@ -233,7 +246,7 @@ export function useSession(
       const oldestId = messages[key]?.[0]?.id;
       if (!oldestId || !hasOlder[key] || olderLoading[key]) return false;
 
-      const { kind, id } = parseKey(key);
+      const { kind, id } = parseConversationKey(key);
       setOlderLoading((prev) => ({ ...prev, [key]: true }));
       try {
         const older =
@@ -281,12 +294,28 @@ export function useSession(
       setNotice("Not connected. Reconnect to send messages.");
       return false;
     }
-    const { kind, id } = parseKey(key);
+    const { kind, id } = parseConversationKey(key);
     const payload =
       kind === "dm"
         ? { type: "dm", recipient_id: id, content }
         : { type: "room", room_id: id, content };
     socket.send(JSON.stringify(payload));
+    setNotice(null);
+    return true;
+  }, []);
+
+  const sendBuzz = useCallback((key: string): boolean => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setNotice("Not connected. Reconnect to send a buzz.");
+      return false;
+    }
+    const { kind, id } = parseConversationKey(key);
+    if (kind !== "dm") {
+      setNotice("Buzz only works in direct messages.");
+      return false;
+    }
+    socket.send(JSON.stringify({ type: "buzz", recipient_id: id }));
     setNotice(null);
     return true;
   }, []);
@@ -299,7 +328,7 @@ export function useSession(
       return;
     }
     lastTypingSent.current.set(key, now);
-    const { kind, id } = parseKey(key);
+    const { kind, id } = parseConversationKey(key);
     socket.send(
       JSON.stringify(
         kind === "dm"
@@ -369,8 +398,10 @@ export function useSession(
     activeKey,
     notice,
     typing,
+    buzz,
     select,
     send,
+    sendBuzz,
     sendTyping,
     addBuddy,
     createRoom,

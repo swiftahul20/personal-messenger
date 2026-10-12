@@ -42,4 +42,5 @@ export type ServerEvent =
   | { type: "ack"; message_id: number; status: DeliveryStatus }
   | { type: "presence"; user_id: number; online: boolean }
   | { type: "typing"; user_id: number; room_id?: number }
+  | { type: "buzz"; user_id: number }
   | { type: "error"; error: string };
