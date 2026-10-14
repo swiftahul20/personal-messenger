@@ -13,6 +13,18 @@ type fakeStore struct {
 	users           map[int]string
 }
 
+type streamRecordingStore struct {
+	fakeStore
+	saved int
+}
+
+func (s *streamRecordingStore) SaveMessage(_ context.Context, message *Message) error {
+	s.saved++
+	message.ID = int64(s.saved)
+	message.SentAt = time.Now()
+	return nil
+}
+
 func (f fakeStore) SaveMessage(_ context.Context, message *Message) error {
 	message.ID = 42
 	message.SentAt = time.Now()
@@ -121,6 +133,47 @@ func TestTypingInRoomSkipsSenderAndNonMembers(t *testing.T) {
 	}
 	if event, ok := receive(clients[1]); ok {
 		t.Fatalf("sender received %+v", event)
+	}
+}
+
+func TestBotStreamIsDeliveredOnlyFromBotToBuddyWithoutPersistence(t *testing.T) {
+	store := &streamRecordingStore{
+		fakeStore: fakeStore{buddies: map[[2]int]bool{{1, 99}: true}},
+	}
+	hub, clients := startHub(t, store, 1, 2, 99)
+	hub.SetBotUserID(99)
+
+	if err := hub.Publish(IncomingMessage{
+		Type: "bot_stream", RecipientID: 1, StreamID: "forged", Content: "nope",
+	}, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.Publish(IncomingMessage{
+		Type: "bot_stream", RecipientID: 1, StreamID: "reply-1", Content: "hello ",
+	}, 99); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.Publish(IncomingMessage{
+		Type: "bot_stream", RecipientID: 1, StreamID: "reply-1", Done: true,
+	}, 99); err != nil {
+		t.Fatal(err)
+	}
+
+	chunk, ok := receive(clients[1])
+	if !ok || chunk.Type != "bot_stream" || chunk.UserID != 99 ||
+		chunk.RecipientID != 1 || chunk.StreamID != "reply-1" ||
+		chunk.Content != "hello " || chunk.Done {
+		t.Fatalf("recipient got %+v, delivered=%v", chunk, ok)
+	}
+	done, ok := receive(clients[1])
+	if !ok || done.Type != "bot_stream" || done.StreamID != "reply-1" || !done.Done {
+		t.Fatalf("recipient got completion %+v, delivered=%v", done, ok)
+	}
+	if _, ok := receive(clients[2]); ok {
+		t.Fatal("a forged bot stream was delivered")
+	}
+	if store.saved != 0 {
+		t.Fatalf("bot stream saved %d messages, want none", store.saved)
 	}
 }
 

@@ -20,18 +20,24 @@ type IncomingMessage struct {
 	RecipientID int    `json:"recipient_id,omitempty"`
 	RoomID      int    `json:"room_id,omitempty"`
 	Content     string `json:"content"`
+	StreamID    string `json:"stream_id,omitempty"`
+	Done        bool   `json:"done,omitempty"`
 }
 
 type Event struct {
-	Type      string   `json:"type"`
-	Message   *Message `json:"message,omitempty"`
-	MessageID int64    `json:"message_id,omitempty"`
-	Status    string   `json:"status,omitempty"`
-	UserID    int      `json:"user_id,omitempty"`
-	Presence  string   `json:"presence,omitempty"`
-	RoomID    int      `json:"room_id,omitempty"`
-	Online    *bool    `json:"online,omitempty"`
-	Error     string   `json:"error,omitempty"`
+	Type        string   `json:"type"`
+	Message     *Message `json:"message,omitempty"`
+	MessageID   int64    `json:"message_id,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	UserID      int      `json:"user_id,omitempty"`
+	RecipientID int      `json:"recipient_id,omitempty"`
+	Presence    string   `json:"presence,omitempty"`
+	RoomID      int      `json:"room_id,omitempty"`
+	Online      *bool    `json:"online,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	StreamID    string   `json:"stream_id,omitempty"`
+	Content     string   `json:"content,omitempty"`
+	Done        bool     `json:"done,omitempty"`
 }
 
 type Store interface {

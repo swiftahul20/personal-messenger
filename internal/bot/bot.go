@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/swiftahul20/personal-messenger/internal/chat"
@@ -40,6 +42,7 @@ type Bot struct {
 	tools     *ToolBox
 	enabled   bool
 	botUserID int
+	streamSeq atomic.Uint64
 }
 
 func NewBot(hub *chat.Hub, store chat.Store, responder Responder, enabled bool, botUserID int, rpm, dailyCap int) *Bot {
@@ -104,11 +107,42 @@ func (b *Bot) handleMessage(ctx context.Context, packet chat.BotMessage) {
 		return
 	}
 
+	streamID := fmt.Sprintf("%d-%d", packet.UserID, b.streamSeq.Add(1))
+	publishChunk := func(content string) error {
+		if content == "" {
+			return nil
+		}
+		return b.hub.Publish(chat.IncomingMessage{
+			Type:        "bot_stream",
+			RecipientID: packet.UserID,
+			Content:     content,
+			StreamID:    streamID,
+		}, b.botUserID)
+	}
+	finishStream := func() {
+		if err := b.hub.Publish(chat.IncomingMessage{
+			Type:        "bot_stream",
+			RecipientID: packet.UserID,
+			StreamID:    streamID,
+			Done:        true,
+		}, b.botUserID); err != nil {
+			log.Printf("bot stream completion for user %d failed: %v", packet.UserID, err)
+		}
+	}
+	defer finishStream()
+
 	var reply string
-	if agentic, ok := b.responder.(ToolCallingResponder); ok {
+	if agentic, ok := b.responder.(StreamingToolCallingResponder); ok {
+		reply, err = agentic.ReplyWithToolsStream(ctx, history, packet.UserID, packet.Message.Content, b, publishChunk)
+	} else if agentic, ok := b.responder.(ToolCallingResponder); ok {
 		reply, err = agentic.ReplyWithTools(ctx, history, packet.UserID, packet.Message.Content, b)
 	} else {
 		reply, err = b.responder.Reply(ctx, history)
+	}
+	if err == nil && strings.TrimSpace(reply) != "" {
+		if _, ok := b.responder.(StreamingToolCallingResponder); !ok {
+			err = publishChunk(reply)
+		}
 	}
 	if err != nil {
 		log.Printf("bot response to user %d failed: %v", packet.UserID, err)

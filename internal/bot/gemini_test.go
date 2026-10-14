@@ -131,3 +131,109 @@ func TestGeminiResponderDoesNotEnableToolsOnBasicReply(t *testing.T) {
 		t.Errorf("reply = %q", reply)
 	}
 }
+
+func TestGeminiResponderStreamsText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") != "text/event-stream" {
+			t.Errorf("Accept header = %q, want text/event-stream", r.Header.Get("Accept"))
+		}
+		_, _ = fmt.Fprintln(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"internal reasoning","thought":true},{"text":"hey "}]}}]}`)
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"there :)"}]}}]}`)
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "data: [DONE]")
+	}))
+	defer server.Close()
+
+	responder := NewGeminiResponder("test-key", "test-model")
+	responder.client = server.Client()
+	responder.endpoint = server.URL
+	var chunks []string
+	reply, err := responder.ReplyWithToolsStream(context.Background(), []chat.Message{
+		{SenderName: "alice", Content: "hi"},
+	}, 42, "hi", &recordingToolExecutor{}, func(chunk string) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ReplyWithToolsStream() error = %v", err)
+	}
+	if reply != "hey there :)" {
+		t.Errorf("reply = %q", reply)
+	}
+	if got := strings.Join(chunks, ""); got != reply {
+		t.Errorf("streamed chunks = %q, want reply %q", got, reply)
+	}
+}
+
+func TestGeminiResponderStreamsToolFollowUp(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload geminiRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if len(payload.Tools) != 1 {
+			t.Errorf("stream request tools = %d, want 1", len(payload.Tools))
+		}
+		if requests.Add(1) == 1 {
+			_, _ = fmt.Fprintln(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"location":"Tokyo"}}}]}}]}`)
+		} else {
+			_, _ = fmt.Fprintln(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"tokyo is "}]}}]}`)
+			_, _ = fmt.Fprintln(w)
+			_, _ = fmt.Fprintln(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"18 c :)"}]}}]}`)
+		}
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "data: [DONE]")
+	}))
+	defer server.Close()
+
+	responder := NewGeminiResponder("test-key", "test-model")
+	responder.client = server.Client()
+	responder.endpoint = server.URL
+	executor := &recordingToolExecutor{}
+	var streamed strings.Builder
+	reply, err := responder.ReplyWithToolsStream(context.Background(), []chat.Message{
+		{SenderName: "alice", Content: "what's the weather in Tokyo?"},
+	}, 42, "what's the weather in Tokyo?", executor, func(chunk string) error {
+		streamed.WriteString(chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ReplyWithToolsStream() error = %v", err)
+	}
+	if reply != "tokyo is 18 c :) (Open-Meteo)" {
+		t.Errorf("reply = %q", reply)
+	}
+	if streamed.String() != reply {
+		t.Errorf("streamed content = %q, want %q", streamed.String(), reply)
+	}
+	if len(executor.calls) != 1 || executor.calls[0] != toolGetWeather {
+		t.Errorf("executed calls = %v", executor.calls)
+	}
+	if requests.Load() != 2 {
+		t.Errorf("Gemini requests = %d, want 2", requests.Load())
+	}
+}
+
+func TestMergeStreamFunctionCallKeepsRepeatedToolNames(t *testing.T) {
+	var parts []geminiPart
+	mergeStreamFunctionCall(&parts, geminiFunctionCall{
+		Name: toolGetWeather,
+		Args: json.RawMessage(`{"location":"Tokyo"}`),
+	}, 0)
+	mergeStreamFunctionCall(&parts, geminiFunctionCall{
+		Name: toolGetWeather,
+		Args: json.RawMessage(`{"location":"Osaka"}`),
+	}, 1)
+	if len(parts) != 2 {
+		t.Fatalf("function calls = %d, want 2", len(parts))
+	}
+	if parts[0].FunctionCall == nil || parts[1].FunctionCall == nil ||
+		!strings.Contains(string(parts[0].FunctionCall.Args), "Tokyo") ||
+		!strings.Contains(string(parts[1].FunctionCall.Args), "Osaka") {
+		t.Errorf("function calls = %+v", parts)
+	}
+}

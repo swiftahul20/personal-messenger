@@ -214,6 +214,10 @@ func (h *Hub) notifyPresence(ctx context.Context, clients map[int]*Client, userI
 }
 
 func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedMessage) {
+	if queued.message.Type == "bot_stream" {
+		h.routeBotStream(ctx, clients, queued)
+		return
+	}
 	if queued.message.Type == "buzz" {
 		h.routeBuzz(ctx, clients, queued)
 		return
@@ -293,6 +297,37 @@ func (h *Hub) route(ctx context.Context, clients map[int]*Client, queued queuedM
 	default:
 		h.sendError(clients[queued.senderID], "type must be dm or room")
 	}
+}
+
+func (h *Hub) routeBotStream(ctx context.Context, clients map[int]*Client, queued queuedMessage) {
+	message := queued.message
+	if queued.senderID != h.botUserID || h.botUserID <= 0 ||
+		message.RecipientID <= 0 || message.RecipientID == h.botUserID ||
+		message.RoomID != 0 || len(message.StreamID) == 0 ||
+		len(message.StreamID) > 100 || strings.TrimSpace(message.StreamID) != message.StreamID ||
+		(!message.Done && (message.Content == "" || len(message.Content) > 4000)) ||
+		(message.Done && message.Content != "") {
+		log.Printf("rejected invalid bot stream event from user %d", queued.senderID)
+		return
+	}
+	allowed, err := h.store.AreBuddies(ctx, message.RecipientID, h.botUserID)
+	if err != nil {
+		log.Printf("validate bot stream recipient %d: %v", message.RecipientID, err)
+		return
+	}
+	if !allowed {
+		log.Printf("rejected bot stream to non-buddy user %d", message.RecipientID)
+		return
+	}
+	event := Event{
+		Type:        "bot_stream",
+		UserID:      h.botUserID,
+		RecipientID: message.RecipientID,
+		StreamID:    message.StreamID,
+		Content:     message.Content,
+		Done:        message.Done,
+	}
+	h.deliverTo(ctx, clients, message.RecipientID, event)
 }
 
 func (h *Hub) routeBuzz(ctx context.Context, clients map[int]*Client, queued queuedMessage) {

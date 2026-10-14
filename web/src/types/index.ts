@@ -44,4 +44,12 @@ export type ServerEvent =
   | { type: "presence"; user_id: number; online: boolean; presence?: string }
   | { type: "typing"; user_id: number; room_id?: number }
   | { type: "buzz"; user_id: number }
+  | {
+      type: "bot_stream";
+      user_id: number;
+      recipient_id: number;
+      stream_id: string;
+      content?: string;
+      done?: boolean;
+    }
   | { type: "error"; error: string };

@@ -33,6 +33,9 @@ export function useSession(
   const [listState, setListState] = useState<LoadState>("loading");
   const [reloadTick, setReloadTick] = useState(0);
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [botStreams, setBotStreams] = useState<
+    Record<string, { streamId: string; content: string }>
+  >({});
   const [history, setHistory] = useState<Record<string, LoadState>>({});
   const [hasOlder, setHasOlder] = useState<Record<string, boolean>>({});
   const [olderLoading, setOlderLoading] = useState<Record<string, boolean>>({});
@@ -116,6 +119,7 @@ export function useSession(
     };
     socket.onclose = () => {
       if (disposed) return;
+      setBotStreams({});
       setConnection("closed");
       const delay = Math.min(
         RECONNECT_BASE_MS * 2 ** reconnectAttemptRef.current,
@@ -160,6 +164,26 @@ export function useSession(
           buzzTimerRef.current = null;
           setBuzz((prev) => ({ ...prev, userId: null }));
         }, 4000);
+      } else if (data.type === "bot_stream") {
+        if (data.recipient_id !== user.id) return;
+        const key = `dm:${data.user_id}`;
+        setBotStreams((prev) => {
+          const current = prev[key];
+          if (data.done) {
+            if (!current || current.streamId !== data.stream_id) return prev;
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          }
+          const content =
+            current?.streamId === data.stream_id
+              ? current.content + (data.content ?? "")
+              : (data.content ?? "");
+          return {
+            ...prev,
+            [key]: { streamId: data.stream_id, content },
+          };
+        });
       } else if (data.type === "message") {
         const message = data.message;
         const otherId =
@@ -174,6 +198,14 @@ export function useSession(
           ...prev,
           [key]: mergeMessages(prev[key] ?? [], [message]),
         }));
+        if (message.sender_id !== user.id) {
+          setBotStreams((prev) => {
+            if (!prev[key]) return prev;
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          });
+        }
         if (message.sender_id !== user.id && activeRef.current !== key) {
           setUnread((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
         }
@@ -398,6 +430,7 @@ export function useSession(
     hasOlder,
     olderLoading,
     delivery,
+    botStreams,
     unread,
     activeKey,
     notice,

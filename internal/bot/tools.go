@@ -37,6 +37,10 @@ type ToolCallingResponder interface {
 	ReplyWithTools(context.Context, []chat.Message, int, string, ToolExecutor) (string, error)
 }
 
+type StreamingToolCallingResponder interface {
+	ReplyWithToolsStream(context.Context, []chat.Message, int, string, ToolExecutor, func(string) error) (string, error)
+}
+
 type triviaQuestion struct {
 	prompt  string
 	answers []string

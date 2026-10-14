@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -70,14 +71,21 @@ func (r *GeminiResponder) Available() bool {
 }
 
 func (r *GeminiResponder) Reply(ctx context.Context, history []chat.Message) (string, error) {
-	return r.reply(ctx, history, 0, "", nil)
+	return r.reply(ctx, history, 0, "", nil, nil)
 }
 
 func (r *GeminiResponder) ReplyWithTools(ctx context.Context, history []chat.Message, userID int, userMessage string, tools ToolExecutor) (string, error) {
-	return r.reply(ctx, history, userID, userMessage, tools)
+	return r.reply(ctx, history, userID, userMessage, tools, nil)
 }
 
-func (r *GeminiResponder) reply(ctx context.Context, history []chat.Message, userID int, userMessage string, executor ToolExecutor) (string, error) {
+func (r *GeminiResponder) ReplyWithToolsStream(ctx context.Context, history []chat.Message, userID int, userMessage string, tools ToolExecutor, onToken func(string) error) (string, error) {
+	if onToken == nil {
+		return "", errors.New("stream token handler is required")
+	}
+	return r.reply(ctx, history, userID, userMessage, tools, onToken)
+}
+
+func (r *GeminiResponder) reply(ctx context.Context, history []chat.Message, userID int, userMessage string, executor ToolExecutor, onToken func(string) error) (string, error) {
 	if r == nil || strings.TrimSpace(r.apiKey) == "" {
 		return "", errMissingGeminiKey
 	}
@@ -109,10 +117,40 @@ func (r *GeminiResponder) reply(ctx context.Context, history []chat.Message, use
 		request.Tools = []geminiTool{botToolDeclaration()}
 	}
 
+	var streamed strings.Builder
+	emittedRunes := 0
+	streamLimit := maxReplyRunes
+	if executor != nil {
+		streamLimit -= len([]rune(" (Open-Meteo)"))
+	}
+	emitToken := func(text string) error {
+		if onToken == nil || text == "" {
+			return nil
+		}
+		runes := []rune(text)
+		remaining := streamLimit - emittedRunes
+		if remaining <= 0 {
+			return nil
+		}
+		if len(runes) > remaining {
+			runes = runes[:remaining]
+		}
+		chunk := string(runes)
+		streamed.WriteString(chunk)
+		emittedRunes += len(runes)
+		return onToken(chunk)
+	}
+
 	toolCalls := 0
 	usedWeather := false
 	for {
-		response, err := r.generateContent(ctx, request)
+		var response geminiResponse
+		var err error
+		if onToken != nil {
+			response, err = r.streamGenerateContent(ctx, request, emitToken)
+		} else {
+			response, err = r.generateContent(ctx, request)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -126,11 +164,25 @@ func (r *GeminiResponder) reply(ctx context.Context, history []chat.Message, use
 			if part.FunctionCall != nil {
 				calls = append(calls, *part.FunctionCall)
 			}
-			if part.Text != "" {
+			if part.Text != "" && !part.Thought {
 				text.WriteString(part.Text)
 			}
 		}
 		if len(calls) == 0 {
+			if onToken != nil {
+				reply := strings.TrimSpace(streamed.String())
+				if reply == "" {
+					return "", errors.New("gemini returned no text")
+				}
+				if usedWeather && !strings.Contains(strings.ToLower(reply), "open-meteo") {
+					const source = " (Open-Meteo)"
+					if err := emitToken(source); err != nil {
+						return "", err
+					}
+					reply = strings.TrimSpace(streamed.String())
+				}
+				return reply, nil
+			}
 			reply := strings.TrimSpace(text.String())
 			reply = strings.ReplaceAll(reply, "\r\n", "\n")
 			if reply == "" {
@@ -234,6 +286,123 @@ func (r *GeminiResponder) generateContent(ctx context.Context, payload geminiReq
 	return result, nil
 }
 
+func (r *GeminiResponder) streamGenerateContent(ctx context.Context, payload geminiRequest, onToken func(string) error) (geminiResponse, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return geminiResponse{}, fmt.Errorf("marshal gemini request: %w", err)
+	}
+	endpoint := r.endpoint
+	if endpoint == "" {
+		endpoint = fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent", url.PathEscape(r.model))
+		parsed, err := url.Parse(endpoint)
+		if err != nil {
+			return geminiResponse{}, fmt.Errorf("build gemini streaming endpoint: %w", err)
+		}
+		query := parsed.Query()
+		query.Set("alt", "sse")
+		query.Set("key", r.apiKey)
+		parsed.RawQuery = query.Encode()
+		endpoint = parsed.String()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return geminiResponse{}, fmt.Errorf("create gemini streaming request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return geminiResponse{}, errors.New("call gemini streaming API: request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return geminiResponse{}, fmt.Errorf("gemini streaming request failed with %s", resp.Status)
+	}
+
+	result := geminiResponse{}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 4096), maxGeminiResponseBytes)
+	totalBytes := 0
+	for scanner.Scan() {
+		totalBytes += len(scanner.Bytes()) + 1
+		if totalBytes > maxGeminiResponseBytes {
+			return geminiResponse{}, errors.New("gemini streaming response exceeded the size limit")
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		var chunk geminiResponse
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return geminiResponse{}, fmt.Errorf("decode gemini stream event: %w", err)
+		}
+		if len(chunk.Candidates) == 0 {
+			continue
+		}
+		if len(result.Candidates) == 0 {
+			result.Candidates = append(result.Candidates, geminiCandidate{
+				Content: geminiContent{Role: chunk.Candidates[0].Content.Role},
+			})
+		}
+		callIndex := 0
+		for _, part := range chunk.Candidates[0].Content.Parts {
+			if part.Text != "" && !part.Thought {
+				result.Candidates[0].Content.Parts = append(result.Candidates[0].Content.Parts, geminiPart{Text: part.Text})
+				if err := onToken(part.Text); err != nil {
+					return geminiResponse{}, fmt.Errorf("send gemini stream token: %w", err)
+				}
+			}
+			if part.FunctionCall != nil {
+				mergeStreamFunctionCall(&result.Candidates[0].Content.Parts, *part.FunctionCall, callIndex)
+				callIndex++
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return geminiResponse{}, fmt.Errorf("read gemini stream: %w", err)
+	}
+	return result, nil
+}
+
+func mergeStreamFunctionCall(parts *[]geminiPart, call geminiFunctionCall, callIndex int) {
+	callOrdinal := 0
+	for partIndex := range *parts {
+		existing := (*parts)[partIndex].FunctionCall
+		if existing == nil {
+			continue
+		}
+		if callOrdinal != callIndex {
+			callOrdinal++
+			continue
+		}
+		if existing.Name != call.Name {
+			*existing = call
+			return
+		}
+		var existingArgs map[string]json.RawMessage
+		var nextArgs map[string]json.RawMessage
+		if json.Unmarshal(existing.Args, &existingArgs) != nil || existingArgs == nil {
+			existingArgs = make(map[string]json.RawMessage)
+		}
+		if json.Unmarshal(call.Args, &nextArgs) == nil {
+			for key, value := range nextArgs {
+				existingArgs[key] = value
+			}
+		}
+		merged, err := json.Marshal(existingArgs)
+		if err == nil {
+			existing.Args = merged
+		}
+		return
+	}
+	*parts = append(*parts, geminiPart{FunctionCall: &call})
+}
+
 type geminiRequest struct {
 	SystemInstruction geminiContent          `json:"systemInstruction"`
 	Contents          []geminiContent        `json:"contents"`
@@ -270,6 +439,7 @@ type geminiContent struct {
 
 type geminiPart struct {
 	Text             string                  `json:"text,omitempty"`
+	Thought          bool                    `json:"thought,omitempty"`
 	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
 }
@@ -284,10 +454,12 @@ type geminiFunctionResponse struct {
 	Response map[string]any `json:"response"`
 }
 
+type geminiCandidate struct {
+	Content geminiContent `json:"content"`
+}
+
 type geminiResponse struct {
-	Candidates []struct {
-		Content geminiContent `json:"content"`
-	} `json:"candidates"`
+	Candidates []geminiCandidate `json:"candidates"`
 }
 
 func botToolDeclaration() geminiTool {

@@ -108,6 +108,7 @@ export function Conversation({
     buddies,
     rooms,
     messages,
+    botStreams,
     history,
     connection,
     notice,
@@ -127,6 +128,7 @@ export function Conversation({
   } | null>(null);
 
   const list = activeKey ? (messages[activeKey] ?? []) : [];
+  const botStream = activeKey ? botStreams[activeKey] : undefined;
   const oldestMessageId = list[0]?.id;
   useEffect(() => {
     const log = logRef.current;
@@ -144,7 +146,7 @@ export function Conversation({
     }
     if (snapshot && snapshot.key !== activeKey) prependScrollRef.current = null;
     log.scrollTop = log.scrollHeight;
-  }, [list.length, activeKey, oldestMessageId]);
+  }, [list.length, activeKey, oldestMessageId, botStream?.content]);
 
   if (!activeKey) {
     return (
@@ -329,6 +331,23 @@ export function Conversation({
           </p>
         ) : null}
         {list.length > 0 ? <Transcript session={session} list={list} /> : null}
+        {botStream && buddy && isBotUsername(buddy.username) ? (
+          <div className="mt-3" aria-label={`${title} is replying`}>
+            <p className="flex items-baseline gap-2">
+              <span className="font-bold text-ink">{title}</span>
+              <span className="rounded bg-brand/10 px-1 text-[10px] font-bold uppercase tracking-wide text-brand">
+                BOT
+              </span>
+            </p>
+            <p
+              role="status"
+              aria-live="polite"
+              className="whitespace-pre-wrap wrap-break-word"
+            >
+              {botStream.content}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <p role="status" className="min-h-5 px-3 text-xs text-muted">
