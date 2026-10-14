@@ -53,32 +53,36 @@ func main() {
 	}
 	log.Printf("bot user ready: %s (%d)", botUser.Username, botUser.ID)
 
-	hub := chat.NewHub(store)
-	hub.SetBotUserID(botUser.ID)
-	go hub.Run(ctx)
-
 	botEnabled := envBool("BOT_ENABLED", true)
 	botRPM := envInt("BOT_USER_RPM", 5)
 	botDailyCap := envInt("BOT_DAILY_CAP", 100)
-	var responder bot.Responder = bot.StaticResponder{}
+	var responder bot.Responder
+	botPresence := bot.PresenceAFK
 	if botEnabled {
 		apiKey := strings.TrimSpace(env("GEMINI_API_KEY", ""))
 		if apiKey == "" {
-			log.Printf("GEMINI_API_KEY is not set; falling back to static bot replies")
+			log.Printf("GEMINI_API_KEY is not set; bot presence is %q", bot.PresenceAFK)
 		} else {
 			responder = bot.NewGeminiResponder(apiKey, env("GEMINI_MODEL", bot.DefaultGeminiModel))
 			if responder == nil {
-				log.Printf("failed to initialize Gemini responder; using static bot replies")
-				responder = bot.StaticResponder{}
+				log.Printf("failed to initialize Gemini responder; bot presence is %q", bot.PresenceAFK)
+			} else {
+				botPresence = bot.PresenceOnline
 			}
 		}
+	} else {
+		log.Printf("bot disabled via BOT_ENABLED; bot presence is %q", bot.PresenceAFK)
 	}
+
+	hub := chat.NewHub(store)
+	hub.SetBotUserID(botUser.ID)
+	go hub.Run(ctx)
+	hub.SetBotPresence(botPresence)
+
 	botRunner := bot.NewBot(hub, store, responder, botEnabled, botUser.ID, botRPM, botDailyCap)
 	if botEnabled {
 		go botRunner.Run(ctx)
 		log.Printf("bot enabled: %s (%d)", botUser.Username, botUser.ID)
-	} else {
-		log.Printf("bot disabled via BOT_ENABLED")
 	}
 
 	address := env("ADDR", ":8080")

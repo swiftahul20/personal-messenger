@@ -16,6 +16,7 @@ import (
 type stubStore struct {
 	listings    []room.Listing
 	members     map[int][]room.Member
+	buddies     []user.User
 	lastQuery   string
 	lastBrowser int
 }
@@ -26,7 +27,7 @@ func (s *stubStore) FindByUsername(context.Context, string) (user.User, error) {
 }
 func (s *stubStore) GetByID(context.Context, int) (user.User, error)       { return user.User{}, nil }
 func (s *stubStore) AddBuddy(context.Context, int, int) error              { return nil }
-func (s *stubStore) ListBuddies(context.Context, int) ([]user.User, error) { return nil, nil }
+func (s *stubStore) ListBuddies(context.Context, int) ([]user.User, error) { return s.buddies, nil }
 func (s *stubStore) CreateRoom(context.Context, int, string) (room.Room, error) {
 	return room.Room{}, nil
 }
@@ -101,6 +102,29 @@ func TestBrowseRoomsReturnsListingsAndPassesTrimmedSearch(t *testing.T) {
 	}
 	if len(listings) != 1 || listings[0].ID != 3 || listings[0].MemberCount != 2 || !listings[0].Joined {
 		t.Fatalf("unexpected listings: %+v", listings)
+	}
+}
+
+func TestListBuddiesIncludesBotPresence(t *testing.T) {
+	store := &stubStore{buddies: []user.User{{ID: 2, Username: user.DefaultBotUsername}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	hub := chat.NewHub(store)
+	hub.SetBotUserID(2)
+	go hub.Run(ctx)
+	hub.SetBotPresence("AFK")
+	handler := NewHandler(store, store, store, hub).Routes()
+
+	response := get(handler, "/api/users/1/buddies")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", response.Code, response.Body)
+	}
+	var buddies []user.Buddy
+	if err := json.Unmarshal(response.Body.Bytes(), &buddies); err != nil {
+		t.Fatal(err)
+	}
+	if len(buddies) != 1 || !buddies[0].Online || buddies[0].Presence != "AFK" {
+		t.Fatalf("unexpected bot buddy status: %+v", buddies)
 	}
 }
 

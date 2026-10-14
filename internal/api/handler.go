@@ -83,7 +83,11 @@ func (h *Handler) listBuddies(w http.ResponseWriter, r *http.Request) {
 	presence := h.hub.OnlineUsers()
 	result := make([]user.Buddy, 0, len(buddies))
 	for _, buddy := range buddies {
-		result = append(result, user.Buddy{User: buddy, Online: presence[buddy.ID]})
+		item := user.Buddy{User: buddy, Online: presence[buddy.ID]}
+		if buddy.ID == h.hub.BotUserID() {
+			item.Presence = h.hub.BotPresence()
+		}
+		result = append(result, item)
 	}
 	writeJSON(w, http.StatusOK, result)
 }

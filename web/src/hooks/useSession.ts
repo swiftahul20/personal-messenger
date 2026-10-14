@@ -138,7 +138,11 @@ export function useSession(
         setBuddies((prev) =>
           prev.map((buddy) =>
             buddy.id === data.user_id
-              ? { ...buddy, online: data.online }
+              ? {
+                  ...buddy,
+                  online: data.online,
+                  presence: data.presence ?? buddy.presence,
+                }
               : buddy,
           ),
         );

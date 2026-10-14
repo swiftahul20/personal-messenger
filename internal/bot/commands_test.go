@@ -2,7 +2,9 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +44,9 @@ func TestCommandReply(t *testing.T) {
 					t.Fatalf("unexpected 8ball reply %q", reply)
 				}
 				return
+			}
+			if test.name == "help" && (!strings.Contains(reply, "trivia") || !strings.Contains(reply, "weather")) {
+				t.Errorf("help reply omits new tools: %q", reply)
 			}
 			if matched, _ := regexp.MatchString(test.want, reply); !matched {
 				t.Fatalf("commandReply() = %q, want pattern %q", reply, test.want)
@@ -94,6 +99,18 @@ func (r *countingResponder) Reply(context.Context, []chat.Message) (string, erro
 	return "unexpected LLM reply", nil
 }
 
+type failingResponder struct{}
+
+func (failingResponder) Reply(context.Context, []chat.Message) (string, error) {
+	return "", errors.New("provider unavailable")
+}
+
+type fixedResponder string
+
+func (r fixedResponder) Reply(context.Context, []chat.Message) (string, error) {
+	return string(r), nil
+}
+
 func TestCommandReplyDoesNotUseResponderOrLimiter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -132,5 +149,77 @@ func TestCommandReplyDoesNotUseResponderOrLimiter(t *testing.T) {
 	bot.limiter.mu.Unlock()
 	if dailyCalls != 0 {
 		t.Fatalf("command used %d LLM quota slots", dailyCalls)
+	}
+}
+
+func TestMissingResponderMarksBotAFKWithoutSendingFallbackDM(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store := commandStore{saved: make(chan chat.Message, 1)}
+	hub := chat.NewHub(store)
+	hub.SetBotUserID(2)
+	go hub.Run(ctx)
+	hub.SetBotPresence(PresenceOnline)
+	bot := NewBot(hub, store, nil, true, 2, 5, 100)
+
+	bot.handleMessage(ctx, chat.BotMessage{
+		UserID: 1,
+		Message: chat.IncomingMessage{
+			Type:    "dm",
+			Content: "hello",
+		},
+	})
+
+	if got := hub.BotPresence(); got != PresenceAFK {
+		t.Fatalf("BotPresence() = %q, want %q", got, PresenceAFK)
+	}
+	select {
+	case message := <-store.saved:
+		t.Fatalf("missing API generated a hardcoded fallback DM: %+v", message)
+	default:
+	}
+}
+
+func TestResponderFailureMarksBotAFKAndSuccessfulReplyRestoresOnline(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store := commandStore{saved: make(chan chat.Message, 2)}
+	hub := chat.NewHub(store)
+	hub.SetBotUserID(2)
+	go hub.Run(ctx)
+	hub.SetBotPresence(PresenceOnline)
+	bot := NewBot(hub, store, failingResponder{}, true, 2, 5, 100)
+	packet := chat.BotMessage{
+		UserID: 1,
+		Message: chat.IncomingMessage{
+			Type:    "dm",
+			Content: "hello",
+		},
+	}
+
+	bot.handleMessage(ctx, packet)
+	if got := hub.BotPresence(); got != PresenceAFK {
+		t.Fatalf("presence after responder failure = %q, want %q", got, PresenceAFK)
+	}
+	select {
+	case message := <-store.saved:
+		t.Fatalf("responder error generated an automated fallback DM: %+v", message)
+	default:
+	}
+
+	bot.responder = fixedResponder("Gemini response")
+	bot.handleMessage(ctx, packet)
+	if got := hub.BotPresence(); got != PresenceOnline {
+		t.Fatalf("presence after successful response = %q, want %q", got, PresenceOnline)
+	}
+	select {
+	case message := <-store.saved:
+		if message.Content != "Gemini response" {
+			t.Fatalf("reply = %q, want Gemini response", message.Content)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("successful response was not sent")
 	}
 }

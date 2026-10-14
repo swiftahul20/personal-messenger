@@ -65,7 +65,7 @@ you: whats the capital of france
 CyberKid00: paris!! duh :P do u have the eiffel tower on ur wall too?? jk jk
 ```
 
-**Away messages** are used as the in-character failure mode (quota hit, LLM error, bot disabled), for example `~*~ brb eating pizza ~*~` or `g2g do hw, ttyl!!`. The bot can show as "away" with one of these instead of returning an error.
+When Gemini is unavailable or a request fails, show the bot as **Away from keyboard (AFK)** in buddy presence and do not send a canned reply. Successful Gemini responses restore the bot's presence to Online. Slash commands remain available without Gemini.
 
 ## LLM Provider
 
@@ -103,7 +103,7 @@ The API key must be provided at **runtime only**. Images are built locally and p
 ```
 internal/bot/
   bot.go        # inbox channel, per-user queues, worker loop, hub integration
-  persona.go    # system prompt and in-character fallback/away lines
+  persona.go    # system prompt
   commands.go   # slash commands handled in Go with no LLM
   limiter.go    # per-user rate limit and global daily cap
   llm.go        # Responder interface
@@ -125,7 +125,7 @@ The `Responder` interface lets the whole flow be tested with a fake implementati
 - Hub routes DMs to the bot inbox (non-blocking).
 - Gemini replies with the persona prompt and recent history.
 - `typing` event, then the full message.
-- Per-user limit, daily cap, `BOT_ENABLED`, in-character away fallback.
+- Per-user limit, daily cap, `BOT_ENABLED`, and AFK presence when Gemini is unavailable.
 - Frontend: bot in the buddy list with a "BOT" badge, typing indicator.
 
 **Phase 2: SmarterChild-style commands (no LLM, handled in Go)**

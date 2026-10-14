@@ -3,7 +3,9 @@ package chat
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
+	"sync"
 )
 
 var ErrHubStopped = errors.New("chat hub is stopped")
@@ -12,15 +14,25 @@ type onlineRequest struct {
 	response chan map[int]bool
 }
 
+type botPresenceRequest struct {
+	presence string
+	response chan struct{}
+}
+
+const defaultBotPresence = "Online"
+
 type Hub struct {
-	store      Store
-	register   chan *Client
-	unregister chan *Client
-	broadcast  chan queuedMessage
-	online     chan onlineRequest
-	done       chan struct{}
-	botUserID  int
-	botInbox   chan BotMessage
+	store              Store
+	register           chan *Client
+	unregister         chan *Client
+	broadcast          chan queuedMessage
+	online             chan onlineRequest
+	botPresence        chan botPresenceRequest
+	done               chan struct{}
+	botUserID          int
+	botInbox           chan BotMessage
+	presenceMu         sync.RWMutex
+	initialBotPresence string
 }
 
 type BotMessage struct {
@@ -35,13 +47,15 @@ type queuedMessage struct {
 
 func NewHub(store Store) *Hub {
 	return &Hub{
-		store:      store,
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		broadcast:  make(chan queuedMessage),
-		online:     make(chan onlineRequest),
-		done:       make(chan struct{}),
-		botInbox:   make(chan BotMessage, 32),
+		store:              store,
+		register:           make(chan *Client),
+		unregister:         make(chan *Client),
+		broadcast:          make(chan queuedMessage),
+		online:             make(chan onlineRequest),
+		botPresence:        make(chan botPresenceRequest),
+		done:               make(chan struct{}),
+		botInbox:           make(chan BotMessage, 32),
+		initialBotPresence: defaultBotPresence,
 	}
 }
 
@@ -74,6 +88,12 @@ func (h *Hub) Run(ctx context.Context) {
 				status[id] = true
 			}
 			request.response <- status
+		case request := <-h.botPresence:
+			h.presenceMu.Lock()
+			h.initialBotPresence = request.presence
+			h.presenceMu.Unlock()
+			h.notifyBotPresence(ctx, clients, request.presence)
+			close(request.response)
 		case queued := <-h.broadcast:
 			h.route(ctx, clients, queued)
 		}
@@ -131,6 +151,48 @@ func (h *Hub) OnlineUsers() map[int]bool {
 	}
 }
 
+func (h *Hub) SetBotPresence(presence string) {
+	response := make(chan struct{})
+	select {
+	case h.botPresence <- botPresenceRequest{presence: presence, response: response}:
+		select {
+		case <-response:
+		case <-h.done:
+		}
+	case <-h.done:
+	}
+}
+
+func (h *Hub) BotPresence() string {
+	h.presenceMu.RLock()
+	defer h.presenceMu.RUnlock()
+	return h.initialBotPresence
+}
+
+func (h *Hub) notifyBotPresence(ctx context.Context, clients map[int]*Client, presence string) {
+	if h.botUserID <= 0 {
+		return
+	}
+	buddies, err := h.store.BuddyIDs(ctx, h.botUserID)
+	if err != nil {
+		log.Printf("list bot buddies for presence update: %v", err)
+		return
+	}
+	online := true
+	event := Event{
+		Type:     "presence",
+		UserID:   h.botUserID,
+		Online:   &online,
+		Presence: presence,
+	}
+	for _, buddyID := range buddies {
+		if buddy := clients[buddyID]; buddy != nil && !buddy.deliver(event) {
+			delete(clients, buddyID)
+			close(buddy.send)
+		}
+	}
+}
+
 func (h *Hub) notifyPresence(ctx context.Context, clients map[int]*Client, userID int, online bool) {
 	buddies, err := h.store.BuddyIDs(ctx, userID)
 	if err != nil {
@@ -138,7 +200,13 @@ func (h *Hub) notifyPresence(ctx context.Context, clients map[int]*Client, userI
 	}
 	status := online
 	for _, buddyID := range buddies {
-		if buddy := clients[buddyID]; buddy != nil && !buddy.deliver(Event{Type: "presence", UserID: userID, Online: &status}) {
+		event := Event{Type: "presence", UserID: userID, Online: &status}
+		if userID == h.botUserID {
+			h.presenceMu.RLock()
+			event.Presence = h.initialBotPresence
+			h.presenceMu.RUnlock()
+		}
+		if buddy := clients[buddyID]; buddy != nil && !buddy.deliver(event) {
 			delete(clients, buddyID)
 			close(buddy.send)
 		}

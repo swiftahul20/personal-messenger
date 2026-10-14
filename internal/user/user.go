@@ -22,7 +22,8 @@ type User struct {
 
 type Buddy struct {
 	User
-	Online bool `json:"online"`
+	Online   bool   `json:"online"`
+	Presence string `json:"presence,omitempty"`
 }
 
 type Store interface {

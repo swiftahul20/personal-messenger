@@ -182,7 +182,11 @@ export function BuddyList({
                         </span>
                       </span>
                       <span className="text-xs text-muted">
-                        {bot ? "BOT" : buddy.online ? "Online" : "Offline"}
+                        {bot
+                          ? buddy.presence ?? (buddy.online ? "Online" : "Offline")
+                          : buddy.online
+                            ? "Online"
+                            : "Offline"}
                       </span>
                       <Unread count={unread[key] ?? 0} />
                     </button>

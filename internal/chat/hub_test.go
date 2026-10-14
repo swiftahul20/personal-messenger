@@ -7,9 +7,10 @@ import (
 )
 
 type fakeStore struct {
-	buddies map[[2]int]bool
-	rooms   map[int][]int
-	users   map[int]string
+	buddies         map[[2]int]bool
+	presenceBuddies map[int][]int
+	rooms           map[int][]int
+	users           map[int]string
 }
 
 func (f fakeStore) SaveMessage(_ context.Context, message *Message) error {
@@ -36,7 +37,9 @@ func (f fakeStore) RoomMemberIDs(_ context.Context, roomID int) ([]int, error) {
 	return f.rooms[roomID], nil
 }
 
-func (f fakeStore) BuddyIDs(context.Context, int) ([]int, error) { return nil, nil }
+func (f fakeStore) BuddyIDs(_ context.Context, userID int) ([]int, error) {
+	return f.presenceBuddies[userID], nil
+}
 
 func (f fakeStore) DMHistory(context.Context, int, int, int64, int) ([]Message, error) {
 	return nil, nil
@@ -229,6 +232,29 @@ func TestBotUserIsAlwaysOnline(t *testing.T) {
 	status := hub.OnlineUsers()
 	if !status[99] {
 		t.Fatal("bot was not reported online")
+	}
+}
+
+func TestBotPresenceStatusUpdatesOnlyItsBuddies(t *testing.T) {
+	store := fakeStore{presenceBuddies: map[int][]int{2: {1}}}
+	hub, clients := startHub(t, store, 1, 2, 3)
+	hub.SetBotUserID(2)
+	receive(clients[1])
+	hub.SetBotPresence("AFK")
+
+	event, ok := receive(clients[1])
+	if !ok || event.Type != "presence" || event.UserID != 2 || event.Online == nil || !*event.Online ||
+		event.Presence != "AFK" {
+		t.Fatalf("bot presence event = %+v, received=%v", event, ok)
+	}
+	if event, ok := receive(clients[3]); ok {
+		t.Fatalf("non-buddy received bot presence event: %+v", event)
+	}
+	if got := hub.BotPresence(); got != "AFK" {
+		t.Fatalf("BotPresence() = %q", got)
+	}
+	if got := hub.OnlineUsers()[2]; !got {
+		t.Fatal("bot should remain online while its status is AFK")
 	}
 }
 

@@ -32,12 +32,16 @@ Slash commands are handled by the Go server without calling Gemini:
 
 | Command | What it does |
 | --- | --- |
-| `/help` | Lists the available commands and mentions BUZZ |
+| `/help` | Lists the commands and mentions BUZZ and Gemini tools |
 | `/8ball [question]` | Replies with a random answer to a yes/no question |
 | `/roll [NdM]` | Rolls dice, defaulting to `1d6`; supports 1-100 dice with 2-1,000,000 sides |
 | `/time` | Shows the bot server's current time |
 
-Other messages use Gemini when `GEMINI_API_KEY` is configured. Without a key, the bot uses its static fallback replies. Non-command messages are limited by `BOT_USER_RPM` and `BOT_DAILY_CAP`.
+Other messages use Gemini when `GEMINI_API_KEY` is configured. If the key is missing or Gemini cannot respond, CyberKid00 stays online but its presence changes to **Away from keyboard (AFK)**. The bot does not send a canned reply for these failures. A successful Gemini response restores its presence to **Online**. Non-command messages are limited by `BOT_USER_RPM` and `BOT_DAILY_CAP`.
+
+With Gemini enabled, ask CyberKid00 to start a trivia game, then send your answer in the same direct message. You can also ask for current weather in a city or place. Weather lookups send the requested place name to Open-Meteo and include its name in the reply. Results use Celsius and kilometers per hour. Avoid sending private or sensitive location details.
+
+Gemini can call only the trivia and weather tools. The server validates tool names and arguments and stops after three tool calls for a reply. Trivia state is kept per user in memory and expires after 15 minutes.
 
 To configure the bot for Docker Compose, create a root-level `.env` file before starting the services. `.env` is ignored by Git. Add your Gemini API key there:
 

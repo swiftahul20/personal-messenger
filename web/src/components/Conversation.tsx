@@ -165,7 +165,7 @@ export function Conversation({
   const title = buddy?.username ?? room?.name ?? "Conversation";
   const subtitle = buddy
     ? isBotUsername(buddy.username)
-      ? "BOT • " + (buddy.online ? "Online" : "Offline")
+      ? `BOT • ${buddy.presence ?? (buddy.online ? "Online" : "Offline")}`
       : buddy.online
         ? "Online"
         : "Offline"

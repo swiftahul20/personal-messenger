@@ -6,6 +6,7 @@ export interface User {
 
 export interface Buddy extends User {
   online: boolean;
+  presence?: string;
 }
 
 export interface Room {
@@ -40,7 +41,7 @@ export type DeliveryStatus = "sent" | "delivered";
 export type ServerEvent =
   | { type: "message"; message: ChatMessage }
   | { type: "ack"; message_id: number; status: DeliveryStatus }
-  | { type: "presence"; user_id: number; online: boolean }
+  | { type: "presence"; user_id: number; online: boolean; presence?: string }
   | { type: "typing"; user_id: number; room_id?: number }
   | { type: "buzz"; user_id: number }
   | { type: "error"; error: string };

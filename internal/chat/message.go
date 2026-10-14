@@ -28,6 +28,7 @@ type Event struct {
 	MessageID int64    `json:"message_id,omitempty"`
 	Status    string   `json:"status,omitempty"`
 	UserID    int      `json:"user_id,omitempty"`
+	Presence  string   `json:"presence,omitempty"`
 	RoomID    int      `json:"room_id,omitempty"`
 	Online    *bool    `json:"online,omitempty"`
 	Error     string   `json:"error,omitempty"`

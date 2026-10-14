@@ -32,7 +32,7 @@ func commandReply(content string, now time.Time) (string, bool) {
 
 	switch strings.ToLower(fields[0]) {
 	case "/help":
-		return "try /help, /8ball [question], /roll [NdM], or /time. hit Buzz to shake a buddy's window :)", true
+		return "try /help, /8ball [question], /roll [NdM], or /time. with Gemini, ask me for trivia or current weather. hit Buzz to shake a buddy's window :)", true
 	case "/8ball":
 		if len(fields) == 1 {
 			return "ask me a yes/no question first, then try /8ball [question] :P", true
