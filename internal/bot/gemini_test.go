@@ -166,6 +166,41 @@ func TestGeminiResponderStreamsText(t *testing.T) {
 	}
 }
 
+func TestGeminiResponderRetriesTemporaryStreamingStatus(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = fmt.Fprintln(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"back online :)"}]}}]}`)
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "data: [DONE]")
+	}))
+	defer server.Close()
+
+	responder := NewGeminiResponder("test-key", "test-model")
+	responder.client = server.Client()
+	responder.endpoint = server.URL
+	var streamed strings.Builder
+	reply, err := responder.ReplyWithToolsStream(context.Background(), []chat.Message{
+		{SenderName: "alice", Content: "hi"},
+	}, 42, "hi", &recordingToolExecutor{}, func(chunk string) error {
+		streamed.WriteString(chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ReplyWithToolsStream() error = %v", err)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("Gemini requests = %d, want 2", requests.Load())
+	}
+	if reply != "back online :)" || streamed.String() != reply {
+		t.Errorf("reply = %q, streamed = %q", reply, streamed.String())
+	}
+}
+
 func TestGeminiResponderStreamsToolFollowUp(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

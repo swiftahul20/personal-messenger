@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,7 +23,10 @@ const DefaultGeminiModel = "gemini-3.8-flash"
 const (
 	maxGeminiResponseBytes = 1 << 20
 	maxReplyRunes          = 220
+	maxGeminiAttempts      = 3
 )
+
+const geminiRetryDelay = 250 * time.Millisecond
 
 var errMissingGeminiKey = errors.New("GEMINI_API_KEY is not configured")
 
@@ -311,14 +315,33 @@ func (r *GeminiResponder) streamGenerateContent(ctx context.Context, payload gem
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return geminiResponse{}, errors.New("call gemini streaming API: request failed")
+	var resp *http.Response
+	for attempt := 1; attempt <= maxGeminiAttempts; attempt++ {
+		retryRequest := req.Clone(ctx)
+		retryRequest.Body = io.NopCloser(bytes.NewReader(body))
+		resp, err = r.client.Do(retryRequest)
+		if err != nil {
+			return geminiResponse{}, errors.New("call gemini streaming API: request failed")
+		}
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			break
+		}
+		if !retryableGeminiStatus(resp.StatusCode) || attempt == maxGeminiAttempts {
+			status := resp.Status
+			_ = resp.Body.Close()
+			return geminiResponse{}, fmt.Errorf("gemini streaming request failed with %s", status)
+		}
+		delay := retryDelay(attempt, resp.Header.Get("Retry-After"))
+		_ = resp.Body.Close()
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return geminiResponse{}, fmt.Errorf("retry gemini streaming request: %w", ctx.Err())
+		case <-timer.C:
+		}
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return geminiResponse{}, fmt.Errorf("gemini streaming request failed with %s", resp.Status)
-	}
 
 	result := geminiResponse{}
 	scanner := bufio.NewScanner(resp.Body)
@@ -367,6 +390,32 @@ func (r *GeminiResponder) streamGenerateContent(ctx context.Context, payload gem
 		return geminiResponse{}, fmt.Errorf("read gemini stream: %w", err)
 	}
 	return result, nil
+}
+
+func retryableGeminiStatus(status int) bool {
+	return status == http.StatusTooManyRequests ||
+		status == http.StatusBadGateway ||
+		status == http.StatusServiceUnavailable ||
+		status == http.StatusGatewayTimeout
+}
+
+func retryDelay(attempt int, retryAfter string) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && seconds >= 0 {
+		return capGeminiRetryDelay(time.Duration(seconds) * time.Second)
+	}
+	if retryAt, err := http.ParseTime(retryAfter); err == nil {
+		if delay := time.Until(retryAt); delay > 0 {
+			return capGeminiRetryDelay(delay)
+		}
+	}
+	return geminiRetryDelay * time.Duration(1<<(attempt-1))
+}
+
+func capGeminiRetryDelay(delay time.Duration) time.Duration {
+	if delay > 5*time.Second {
+		return 5 * time.Second
+	}
+	return delay
 }
 
 func mergeStreamFunctionCall(parts *[]geminiPart, call geminiFunctionCall, callIndex int) {

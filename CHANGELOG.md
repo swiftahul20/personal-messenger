@@ -9,6 +9,7 @@
 - The server validates tool names and arguments, limits tool calls per reply, and keeps trivia state isolated by user.
 - CyberKid00's buddy presence shows Online or Away from keyboard (AFK) based on Gemini availability.
 - Gemini replies stream into the direct-message transcript while the completed reply is saved as a normal message.
+- Gemini streaming requests retry temporary 429, 502, 503, and 504 responses before marking the bot AFK.
 
 ### Changed
 
